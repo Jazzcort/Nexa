@@ -1,7 +1,7 @@
 
 export interface ChatMessage {
 	role: "user" | "assistant" | "system",
-	contexnt: string,
+	content: string,
 	image?: string
 }
 
