@@ -2,6 +2,6 @@
   let props = $props();
 </script>
 
-<div class="border m-2 rounded-sm border-black p-2">
+<div id={props.id} class="border m-2 rounded-sm border-black p-2">
   {props.content}
 </div>
