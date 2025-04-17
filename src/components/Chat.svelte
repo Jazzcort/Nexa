@@ -8,6 +8,7 @@
   import MessageBox from "./MessageBox.svelte";
   import { onMount, tick } from "svelte";
   import { v4 as uuidv4 } from "uuid";
+  import TiptapEditor from "./TiptapEditor.svelte";
 
   let scrollDown: HTMLElement | null;
   let chatSendBtn: HTMLElement | null;
@@ -83,7 +84,8 @@
     hideScrollBar
   >
     {#each chatHistory as msg, i}
-      <MessageBox id={`message-box-${i}`} content={msg.content} />
+      <!-- <MessageBox id={`message-box-${i}`} content={msg.content} /> -->
+      <TiptapEditor id={`message-box-${i}`} content={msg.content} />
     {/each}
     <span id="scroll-down" class="opacity-0">hi</span>
   </ScrollArea>
