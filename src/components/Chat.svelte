@@ -11,7 +11,6 @@
 
   let scrollDown: HTMLElement | null;
   let chatSendBtn: HTMLElement | null;
-  let x = 0;
 
   onMount(() => {
     chatSendBtn = document.getElementById("chat-send-btn");

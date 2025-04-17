@@ -28,6 +28,9 @@
   "dependencies": {
     "@tauri-apps/api": "^2.4.1",
     "@tauri-apps/plugin-http": "^2.4.3",
+    "@tiptap/core": "^2.11.7",
+    "@tiptap/pm": "^2.11.7",
+    "@tiptap/starter-kit": "^2.11.7",
     "uuid": "^11.1.0"
   }
 }
