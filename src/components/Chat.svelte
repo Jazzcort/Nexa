@@ -9,6 +9,7 @@
   import { onMount, tick } from "svelte";
   import { v4 as uuidv4 } from "uuid";
   import TiptapEditor from "./TiptapEditor.svelte";
+  import EdraEditor from "./EdraEditor.svelte";
 
   let scrollDown: HTMLElement | null;
   let chatSendBtn: HTMLElement | null;
@@ -23,7 +24,7 @@
     });
   });
 
-  listen<EmittedChatMessage>("llm-response", (event) => {
+  listen<EmittedChatMessage>("llm-response", async (event) => {
     if (chatHistory.length <= 0) {
       return;
     }
@@ -39,6 +40,7 @@
       if (scrollDown) {
         scrollDown.scrollIntoView({ behavior: "instant", block: "end" });
       }
+      await tick();
     } else {
       disableSendButton = false;
     }
@@ -75,17 +77,22 @@
       userMessage.id = uuidv4();
     }, 80);
   };
+
+  function print(content: string) {
+    console.log(content);
+  }
 </script>
 
-<main class="flex flex-col h-full w-full">
+<main class="flex flex-col h-full w-full max-w-7xl">
   <ScrollArea
     id="chat-history"
     class="h-full border border-black m-2 rounded-xl"
     hideScrollBar
   >
     {#each chatHistory as msg, i}
-      <!-- <MessageBox id={`message-box-${i}`} content={msg.content} /> -->
-      <TiptapEditor id={`message-box-${i}`} content={msg.content} />
+      <!-- <TiptapEditor id={`message-box-${i}`} content={msg.content} /> -->
+      <EdraEditor id={`message-box-${i}`} inputContent={msg.content} />
+      <!-- {print(msg.content)} -->
     {/each}
     <span id="scroll-down" class="opacity-0">hi</span>
   </ScrollArea>
