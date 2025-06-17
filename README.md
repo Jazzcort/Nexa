@@ -4,6 +4,8 @@ Here's a `README.md` for your Nexa project, incorporating your description and c
 
 # Nexa: Your Local AI GUI (Powered by Ollama)
 
+![Demo gif](https://github.com/Jazzcort/Nexa/blob/main/media/nexa-demo.gif)
+
 ## Table of Contents
 
   * [About Nexa](https://github.com/Jazzcort/Nexa/tree/main?tab=readme-ov-file#about-nexa)
