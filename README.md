@@ -66,16 +66,16 @@ For a full list of models compatible with Ollama, please refer to the [Ollama Li
 
 ## Contributing
 
-We welcome contributions to Nexa\! If you have suggestions, bug reports, or want to contribute code, please check out our [Contribution Guidelines](https://www.google.com/search?q=link-to-CONTRIBUTING.md) (create this file if you plan to accept contributions).
+We welcome contributions to Nexa\! If you have suggestions, bug reports, or want to contribute code.
 
 Here are some ways you can contribute:
 
-  * **Report Bugs:** Open an issue on our [GitHub Issues](https://www.google.com/search?q=link-to-your-repo/issues) page.
-  * **Suggest Features:** Share your ideas on the [GitHub Issues](https://www.google.com/search?q=link-to-your-repo/issues) page.
+  * **Report Bugs:** Open an issue on our [GitHub Issues](https://github.com/Jazzcort/Nexa/issues) page.
+  * **Suggest Features:** Share your ideas on the [GitHub Issues](https://github.com/Jazzcort/Nexa/issues) page.
   * **Code Contributions:** Fork the repository, make your changes, and submit a pull request.
 
 ## License
 
-This project is licensed under the [MIT License](https://www.google.com/search?q=LICENSE) - see the `LICENSE` file for details.
+This project is licensed under the [MIT License](https://github.com/Jazzcort/Nexa/blob/main/LICENSE) - see the `LICENSE` file for details.
 
 -----
