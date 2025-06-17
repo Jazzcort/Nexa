@@ -1,5 +1,5 @@
 mod llm;
-use llm::base::{emit_events, test_async};
+use llm::base::{emit_events, get_all_ollama_chat_models, stream_chat};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -14,7 +14,11 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![emit_events, test_async])
+        .invoke_handler(tauri::generate_handler![
+            emit_events,
+            stream_chat,
+            get_all_ollama_chat_models
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
