@@ -1,47 +1,81 @@
-# Svelte + TS + Vite
+Here's a `README.md` for your Nexa project, incorporating your description and common README best practices:
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+-----
 
-## Recommended IDE Setup
+# Nexa: Your Local AI GUI (Powered by Ollama)
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+## Table of Contents
 
-## Need an official Svelte framework?
+  * [About Nexa](https://github.com/Jazzcort/Nexa/tree/main?tab=readme-ov-file#about-nexa)
+  * [Features](https://github.com/Jazzcort/Nexa/tree/main?tab=readme-ov-file#features)
+  * [Getting Started](https://github.com/Jazzcort/Nexa/tree/main?tab=readme-ov-file#getting-started)
+      * [Prerequisites](https://github.com/Jazzcort/Nexa/tree/main?tab=readme-ov-file#prerequisites)
+  * [Using Nexa](https://github.com/Jazzcort/Nexa/tree/main?tab=readme-ov-file#using-nexa)
+  * [Supported Models](https://github.com/Jazzcort/Nexa/tree/main?tab=readme-ov-file#supported-models)
+  * [Contributing](https://github.com/Jazzcort/Nexa/tree/main?tab=readme-ov-file#contributing)
+  * [License](https://github.com/Jazzcort/Nexa/tree/main?tab=readme-ov-file#license)
 
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
+## About Nexa
 
-## Technical considerations
+Nexa is a user-friendly, intuitive graphical user interface (GUI) designed to bring the power of local AI inference directly to your desktop. Built to seamlessly integrate with [Ollama](https://ollama.com/), Nexa allows you to effortlessly interact with various large language models (LLMs) running entirely on your local machine, ensuring privacy, speed, and control over your AI interactions.
 
-**Why use this over SvelteKit?**
+Say goodbye to cloud-based dependencies and hello to a truly personalized AI experience. Nexa provides a streamlined way to manage and interact with your downloaded Ollama models, making advanced AI accessible to everyone.
 
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
+## Features
 
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
+  * **Intuitive GUI:** A clean and easy-to-navigate interface for managing and interacting with AI models.
+  * **Ollama Integration:** Seamlessly connects with your local Ollama instance for model inference.
+  * **Local Inference:** All AI processing happens on your machine, ensuring data privacy and no internet dependency for inference.
+  * **Model Management:** (Potentially) Easily view, download, and remove models directly within the GUI.
+  * **Multi-Model Support:** Interact with different LLMs loaded via Ollama.
+  * **Customizable Prompts:** (Potentially) Save and reuse your favorite prompts.
+  * **Chat History:** (Potentially) Keep track of your conversations with different models.
 
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
+## Getting Started
 
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
+### Prerequisites
 
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
+Before you can run Nexa, you need to have Ollama installed and some models downloaded.
 
-**Why include `.vscode/extensions.json`?**
+  * **Ollama:** Download and install Ollama from their official website: [https://ollama.com/](https://ollama.com/)
+  * **Downloaded Models:** After installing Ollama, make sure you've pulled at least one model. You can do this via your terminal (e.g., `ollama pull llama2`) or through Ollama's own GUI if they provide one.
 
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
+## Using Nexa
 
-**Why enable `allowJs` in the TS template?**
+(This section will need to be filled out with specific instructions once your GUI is more developed. Here's a placeholder.)
 
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
+1.  **Ensure Ollama is Running:** Nexa requires your Ollama server to be active. You can usually verify this by checking your system's tray icons or by running `ollama serve` in your terminal if it's not starting automatically.
+2.  **Select a Model:** Upon launching Nexa, you should see a list of available models that Ollama has downloaded. Select the model you wish to interact with from the dropdown or model selection area.
+3.  **Enter Your Prompt:** Type your query or prompt into the designated input box.
+4.  **Generate Response:** Click the "Generate" or "Send" button to send your prompt to the selected local AI model.
+5.  **View Response:** The model's response will appear in the output or chat window.
+6.  **Continue the Conversation:** You can continue interacting with the model in a conversational manner.
 
-**Why is HMR not preserving my local component state?**
+## Supported Models
 
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
+Nexa supports any model that can be run through Ollama. This includes, but is not limited to:
 
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
+  * Llama 2
+  * Mistral
+  * Code Llama
+  * Vicuna
+  * Dolphin Phi
+  * ...and many more\!
 
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
-```
+For a full list of models compatible with Ollama, please refer to the [Ollama Library](https://ollama.com/library).
+
+## Contributing
+
+We welcome contributions to Nexa\! If you have suggestions, bug reports, or want to contribute code, please check out our [Contribution Guidelines](https://www.google.com/search?q=link-to-CONTRIBUTING.md) (create this file if you plan to accept contributions).
+
+Here are some ways you can contribute:
+
+  * **Report Bugs:** Open an issue on our [GitHub Issues](https://www.google.com/search?q=link-to-your-repo/issues) page.
+  * **Suggest Features:** Share your ideas on the [GitHub Issues](https://www.google.com/search?q=link-to-your-repo/issues) page.
+  * **Code Contributions:** Fork the repository, make your changes, and submit a pull request.
+
+## License
+
+This project is licensed under the [MIT License](https://www.google.com/search?q=LICENSE) - see the `LICENSE` file for details.
+
+-----
