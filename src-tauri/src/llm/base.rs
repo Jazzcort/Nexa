@@ -2,6 +2,7 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 // use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::str::from_utf8;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_http::reqwest;
@@ -63,6 +64,22 @@ struct OllamaChatResponse {
     eval_duration: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct OllamaTagsResponse {
+    models: Vec<OllamaModelTag>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct OllamaModelTag {
+    name: String,
+    model: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct OllamaModelInfo {
+    capabilities: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize)]
 struct OllamaChatRequest {
     model: String,
@@ -77,7 +94,7 @@ struct EmittedChatMessage {
 }
 
 #[tauri::command]
-pub async fn test_async(app: AppHandle, messages: Vec<ChatMessageWithId>) {
+pub async fn stream_chat(app: AppHandle, messages: Vec<ChatMessageWithId>, model: String) {
     let client = reqwest::Client::new();
     // let messages = vec![ChatMessage {
     //     role: Role::User,
@@ -98,7 +115,7 @@ pub async fn test_async(app: AppHandle, messages: Vec<ChatMessageWithId>) {
         messages.into_iter().map(|msg| msg.strip_id()).collect();
 
     let req = OllamaChatRequest {
-        model: "granite3.2:8b".to_string(),
+        model,
         messages: messages_without_id,
     };
     let res = client
@@ -120,7 +137,7 @@ pub async fn test_async(app: AppHandle, messages: Vec<ChatMessageWithId>) {
                     message: stream_response.message,
                     done: stream_response.done,
                 };
-                _ = app.emit("llm-response", emitted_message);
+                _ = app.emit("stream_chat", emitted_message);
             }
             Err(e) => {
                 dbg!(e);
@@ -130,6 +147,47 @@ pub async fn test_async(app: AppHandle, messages: Vec<ChatMessageWithId>) {
     }
 
     // dbg!(res);
+}
+
+#[tauri::command]
+pub async fn get_all_ollama_chat_models() -> Vec<String> {
+    let client = reqwest::Client::new();
+
+    let tags = get_all_ollama_models().await;
+    let mut chat_models = vec![];
+
+    for tag in tags {
+        let json_obj = json!({
+            "model": tag.name
+        });
+        let model_info_res = client
+            .post("http://localhost:11434/api/show")
+            .body(json_obj.to_string())
+            .send()
+            .await
+            .unwrap();
+
+        let bytes = model_info_res.bytes().await.unwrap();
+        let model_info: OllamaModelInfo = serde_json::from_slice(&bytes).unwrap();
+        if model_info.capabilities.iter().any(|ca| ca == "completion") {
+            chat_models.push(tag.name);
+        }
+    }
+
+    chat_models
+}
+
+async fn get_all_ollama_models() -> Vec<OllamaModelTag> {
+    let client = reqwest::Client::new();
+    let res = client
+        .get("http://localhost:11434/api/tags")
+        .send()
+        .await
+        .unwrap();
+
+    let bytes = res.bytes().await.unwrap();
+    let ollama_tags: OllamaTagsResponse = serde_json::from_slice(&bytes).unwrap();
+    ollama_tags.models
 }
 
 #[tauri::command]

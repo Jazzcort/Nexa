@@ -1,5 +1,12 @@
-export interface ChatMessage {
+export interface ChatMessageWithId {
 	id: string,
+	role: "user" | "assistant" | "system",
+	content: string,
+	image?: string,
+	done: boolean
+}
+
+export interface ChatMessage {
 	role: "user" | "assistant" | "system",
 	content: string,
 	image?: string

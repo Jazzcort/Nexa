@@ -9,6 +9,9 @@
     "paths": {
       "$lib": ["./src/lib"],
       "$lib/*": ["./src/lib/*"]
+    },
+    "compilerOptions": {
+      "allowImportingTsExtensions": true
     }
   }
 }
