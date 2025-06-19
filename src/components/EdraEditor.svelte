@@ -10,26 +10,21 @@
   import { onMount, onDestroy } from "svelte";
   import type { ChatMessageWithId } from "$lib/type";
 
-  // let { inputContent, id }: { inputContent: string; id: string } = $props();
-  let { chatMessage, id }: { chatMessage: ChatMessageWithId; id: string } =
-    $props();
+  let {
+    chatMessage,
+    id,
+    index,
+    handleInputBoxSelection,
+  }: {
+    chatMessage: ChatMessageWithId;
+    id: string;
+    index: number;
+    handleInputBoxSelection: (index: number) => void;
+  } = $props();
 
   // Editor states
-  // let content = $state<Content>();
   let editor = $state<Editor>();
   let showToolBar = $state(true);
-
-  // function onUpdate(props: { editor: Editor; transaction: Transaction }) {
-  //   content = props.editor.getJSON();
-  // }
-
-  // onMount(() => {
-  //   editor?.commands.setContent(inputContent);
-  // });
-
-  // $effect(() => {
-  //   updateContent(inputContent);
-  // });
 
   const intervalId = setInterval(() => {
     updateContent(chatMessage.content);
@@ -45,6 +40,16 @@
     editor?.commands.setContent(content);
   };
 
+  // const onUpdate = (props: { editor: Editor, transaction: Transaction }) => {
+  //   editor.f
+  // }
+
+  onMount(() => {
+    editor?.on("focus", () => {
+      handleInputBoxSelection(index);
+    });
+  });
+
   onDestroy(() => {
     editor?.destroy();
   });
@@ -59,7 +64,6 @@
     <!-- <DragHandle {editor} /> -->
   {/if}
   <div class="w-full rounded border">
-    <!-- <Edra class="h-fit overflow-auto" bind:editor {content} {onUpdate} /> -->
     <Edra
       class="h-fit overflow-auto"
       bind:editor

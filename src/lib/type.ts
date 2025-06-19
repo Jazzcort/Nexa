@@ -17,3 +17,8 @@ export interface EmittedChatMessage {
 	message: ChatMessage,
 	done: boolean
 }
+
+export interface ModelState {
+	index: number,
+	models: string[],
+}

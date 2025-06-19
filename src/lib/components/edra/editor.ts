@@ -99,18 +99,26 @@ export const initiateEditor = (
 				transformCopiedText: false // Copied text is transformed to markdown
 			}),
 			Placeholder.configure({
-				emptyEditorClass: 'is-empty',
-				// Use a placeholder:
-				// Use different placeholders depending on the node type:
-				placeholder: ({ node }) => {
-					if (node.type.name === 'heading') {
-						return 'What’s the title?';
-					} else if (node.type.name === 'paragraph') {
-						return 'Press / or write something ...';
+				placeholder: ({ pos }) => {
+					if (pos === 0) {
+						return "Type your message here"
 					}
-					return '';
+					return ""
 				}
 			}),
+			// Placeholder.configure({
+			// 	emptyEditorClass: 'is-empty',
+			// 	// Use a placeholder:
+			// 	// Use different placeholders depending on the node type:
+			// 	placeholder: ({ node }) => {
+			// 		if (node.type.name === 'heading') {
+			// 			return 'What’s the title?';
+			// 		} else if (node.type.name === 'paragraph') {
+			// 			return 'Press / or write something ...';
+			// 		}
+			// 		return '';
+			// 	}
+			// }),
 			CharacterCount.configure({
 				limit
 			}),

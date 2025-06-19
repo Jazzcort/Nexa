@@ -1,41 +1,77 @@
 <script lang="ts">
   import type {
     EmittedChatMessage,
-    ChatMessage,
     ChatMessageWithId,
+    ChatMessage,
   } from "$lib/type";
   import { listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
   import { Textarea } from "$lib/components/ui/textarea/index";
-  // import {
-  //   DropdownMenu,
-  //   DropdownMenuTrigger,
-  //   DropdownMenuContent,
-  //   DropdownMenuItem,
-  //   DropdownMenuGroup,
-  // } from "$lib/components/ui/dropdown-menu";
-  import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
   import { ScrollArea } from "$lib/components/ui/scroll-area/index";
   import CustomButton from "./CustomButton.svelte";
-  import MessageBox from "./MessageBox.svelte";
   import { onMount, tick } from "svelte";
   import { v4 as uuidv4 } from "uuid";
-  import TiptapEditor from "./TiptapEditor.svelte";
   import EdraEditor from "./EdraEditor.svelte";
-  import { Button } from "$lib/components/ui/button";
   import ModelSelectionDropdownMenu from "./ModelSelectionDropdownMenu.svelte";
   import { modelState } from "../states/modelState.svelte";
 
   let scrollDown: HTMLElement | null;
   let chatSendBtn: HTMLElement | null;
   let userInputBox: HTMLElement | null;
-
-  let showStatusBar = $state(true);
-  let showActivityBar = $state(false);
-  let showPanel = $state(false);
+  let disableSendButton = $state(false);
+  let userMessage: ChatMessage = $state({
+    role: "user",
+    content: "",
+  });
+  let chatHistory: ChatMessageWithId[] = $state([]);
+  let currentInputBoxIndex = $state(0);
 
   const handleModelSelection = (index: number) => {
     modelState.index = index;
+  };
+
+  const handleInputBoxSelection = (index: number) => {
+    currentInputBoxIndex = index;
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    switch (e.key) {
+      case "Enter":
+        if (currentInputBoxIndex === chatHistory.length) {
+          streamChat();
+        } else {
+          // TODO: handle message chopping
+        }
+        break;
+    }
+  };
+
+  const streamChat = async () => {
+    chatHistory.push({ ...userMessage, id: uuidv4(), done: true });
+    chatHistory.push({
+      id: uuidv4(),
+      role: "assistant",
+      content: "",
+      done: false,
+    });
+    disableSendButton = true;
+    invoke("stream_chat", {
+      messages: chatHistory,
+      model: modelState.models[modelState.index],
+    });
+
+    await tick();
+    scrollDown = document.getElementById(
+      `message-box-${chatHistory.length - 1}`,
+    );
+
+    if (scrollDown) {
+      scrollDown.scrollIntoView({ behavior: "instant", block: "end" });
+    }
+    setTimeout(() => {
+      userMessage.content = "";
+      userInputBox?.focus();
+    }, 80);
   };
 
   onMount(() => {
@@ -43,9 +79,7 @@
     userInputBox = document.getElementById("user-input-box");
 
     window.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        testAsync();
-      }
+      handleKeyDown(e);
     });
   });
 
@@ -71,44 +105,6 @@
       chatHistory[idx].done = true;
     }
   });
-
-  let disableSendButton = $state(false);
-  let userMessage: ChatMessageWithId = $state({
-    id: uuidv4(),
-    role: "user",
-    content: "",
-    done: false,
-  });
-  let chatHistory: ChatMessageWithId[] = $state([]);
-
-  const testAsync = async () => {
-    chatHistory.push({ ...userMessage, done: true });
-    chatHistory.push({
-      id: uuidv4(),
-      role: "assistant",
-      content: "",
-      done: false,
-    });
-    disableSendButton = true;
-    invoke("stream_chat", {
-      messages: chatHistory,
-      model: modelState.models[modelState.index],
-    });
-
-    await tick();
-    scrollDown = document.getElementById(
-      `message-box-${chatHistory.length - 1}`,
-    );
-
-    if (scrollDown) {
-      scrollDown.scrollIntoView({ behavior: "instant", block: "end" });
-    }
-    setTimeout(() => {
-      userMessage.content = "";
-      userMessage.id = uuidv4();
-      userInputBox?.focus();
-    }, 80);
-  };
 </script>
 
 <main class="flex flex-col h-full w-full max-w-7xl">
@@ -117,9 +113,12 @@
     class="h-full border border-black m-2 rounded-xl"
   >
     {#each chatHistory as msg, i}
-      <!-- <TiptapEditor id={`message-box-${i}`} content={msg.content} /> -->
-      <EdraEditor id={`message-box-${i}`} chatMessage={msg} />
-      <!-- <MessageBox id={`message-box-${i}`} content={msg.content} /> -->
+      <EdraEditor
+        id={`message-box-${i}`}
+        chatMessage={msg}
+        index={i}
+        {handleInputBoxSelection}
+      />
     {/each}
   </ScrollArea>
   <div class="border h-px w-full"></div>
@@ -128,14 +127,18 @@
       id="user-input-box"
       placeholder="Type your message here."
       bind:value={userMessage.content}
+      onfocus={() => handleInputBoxSelection(chatHistory.length)}
     />
     <div class="flex flex-row-reverse justify-between w-full py-2">
       <CustomButton
         id="chat-send-btn"
         buttonText="Send"
-        onclick={testAsync}
+        onclick={streamChat}
         disable={disableSendButton}
       />
+      <p>{currentInputBoxIndex}</p>
+      <p>{currentInputBoxIndex === chatHistory.length}</p>
+
       <ModelSelectionDropdownMenu
         index={modelState.index}
         models={modelState.models}
