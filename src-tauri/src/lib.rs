@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod api;
 mod llm;
 use llm::base::{get_all_ollama_chat_models, stream_chat};
 #[tauri::command]

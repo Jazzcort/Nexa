@@ -1,5 +1,10 @@
+use futures_util::pin_mut;
+use futures_util::stream::Stream;
 use futures_util::StreamExt;
 // use futures_util::StreamExt;
+use crate::llm::ollama::{
+    OllamaChatRequest, OllamaChatResponse, OllamaModelInfo, OllamaModelTag, OllamaTagsResponse,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::str::from_utf8;
@@ -9,11 +14,12 @@ use tauri_plugin_http::reqwest;
 // use tokio_util::io::StreamReader;
 
 pub trait LLM {
-    // fn stream_chat(history: ChatHistory) -> AsyncGenerator;
+    fn stream_chat(history: ChatHistory) -> impl Stream<Item = EmittedChatMessage>;
 }
 
+#[derive(Deserialize, Debug)]
 pub struct ChatHistory {
-    messages: Vec<ChatMessage>,
+    messages: Vec<ChatMessageWithId>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -49,42 +55,6 @@ impl ChatMessageWithId {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct OllamaChatResponse {
-    model: String,
-    created_at: String,
-    message: ChatMessage,
-    done: bool,
-    total_duration: Option<u64>,
-    load_duration: Option<u64>,
-    prompt_evel_count: Option<u64>,
-    prompt_evel_duration: Option<u64>,
-    eval_count: Option<u64>,
-    eval_duration: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct OllamaTagsResponse {
-    models: Vec<OllamaModelTag>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct OllamaModelTag {
-    name: String,
-    model: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct OllamaModelInfo {
-    capabilities: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct OllamaChatRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 struct EmittedChatMessage {
     id: String,
@@ -93,26 +63,29 @@ struct EmittedChatMessage {
 }
 
 #[tauri::command]
-pub async fn stream_chat(app: AppHandle, messages: Vec<ChatMessageWithId>, model: String) {
+pub async fn stream_chat(app: AppHandle, history: ChatHistory, model: String) {
     let client = reqwest::Client::new();
     // let messages = vec![ChatMessage {
     //     role: Role::User,
     //     content: "My name is Tao.".to_string(),
     //     images: None,
     // }];
-    dbg!(&messages);
-    if messages.len() == 0 {
+    dbg!(&history);
+    if history.messages.len() == 0 {
         return;
     }
 
-    let user_input = messages.last();
+    let user_input = history.messages.last();
     if user_input.is_none() {
         return;
     }
 
     let id = user_input.unwrap().id.clone();
-    let messages_without_id: Vec<ChatMessage> =
-        messages.into_iter().map(|msg| msg.strip_id()).collect();
+    let messages_without_id: Vec<ChatMessage> = history
+        .messages
+        .into_iter()
+        .map(|msg| msg.strip_id())
+        .collect();
 
     let req = OllamaChatRequest {
         model,

@@ -83,7 +83,7 @@
 	const streamChat = async () => {
 		streaming = true;
 		invoke("stream_chat", {
-			messages: chatHistory,
+			history: { messages: chatHistory },
 			model: modelState.models[modelState.index],
 		});
 
