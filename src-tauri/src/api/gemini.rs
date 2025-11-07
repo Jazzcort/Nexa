@@ -145,19 +145,294 @@ pub enum Scheduling {
     Interrupt,
 }
 
-// fn gemini_chat(project_id: String, location: String, model_id: String, api_key: String) {
-//     let client = reqwest::Client::new();
-//     client.post(format!("https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:generateContent", location, project_id, location, model_id))
-//         .header("Authorization", format!("Bearer {}", api_key))
-//         .header("Content-Type", "application/json")
-//         .json();
-// }
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct GeminiGenerateContentResponse {
+    candidates: Vec<Candidate>,
+
+    #[serde(flatten)]
+    extra_fields: HashMap<String, Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct Candidate {
+    content: Content,
+
+    #[serde(flatten)]
+    extra_fields: HashMap<String, Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct GeminiGenerateContentRequest {
+    contents: Vec<Content>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<Tool>>,
+
+    #[serde(flatten)]
+    extra_fields: HashMap<String, Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct Content {
+    parts: Vec<GeminiPart>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    role: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct Tool {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    functionDeclarations: Option<Vec<FunctionDeclaration>>,
+
+    #[serde(flatten)]
+    extra_fields: HashMap<String, Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct FunctionDeclaration {
+    name: String,
+    description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parameters: Option<Schema>,
+
+    #[serde(flatten)]
+    extra_fields: HashMap<String, Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct Schema {
+    #[serde(rename = "type")]
+    data_type: Type,
+
+    #[serde(flatten)]
+    type_specified_fields: HashMap<String, Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum Type {
+    #[serde(rename = "TYPE_UNSPECIFIED")]
+    TypeUnspecified,
+    #[serde(rename = "STRING")]
+    String,
+    #[serde(rename = "NUMBER")]
+    Number,
+    #[serde(rename = "INTEGER")]
+    Integer,
+    #[serde(rename = "BOOLEAN")]
+    Boolean,
+    #[serde(rename = "ARRAY")]
+    Array,
+    #[serde(rename = "OBJECT")]
+    Object,
+    #[serde(rename = "NULL")]
+    Null,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    function_calling_config: Option<FunctionCallingConfig>,
+
+    #[serde(flatten)]
+    extra_fields: HashMap<String, Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionCallingConfig {
+    mode: FunctionCallingMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    allowed_function_names: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum FunctionCallingMode {
+    #[serde(rename = "MODE_UNSPECIFIED")]
+    ModeUnspecified,
+    #[serde(rename = "AUTO")]
+    Auto,
+    #[serde(rename = "ANY")]
+    Any,
+    #[serde(rename = "NONE")]
+    None,
+    #[serde(rename = "VALIDATED")]
+    Validated,
+}
+
+async fn gemini_chat(
+    chat_history: Vec<Content>,
+    tools: Vec<Tool>,
+    model_id: String,
+    api_key: String,
+) {
+    let client = reqwest::Client::new();
+
+    let gemini_request = GeminiGenerateContentRequest {
+        contents: chat_history,
+        tools: match tools.len() {
+            0 => None,
+            _ => Some(tools),
+        },
+        extra_fields: HashMap::default(),
+    };
+
+    let response = client
+        .post(format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            model_id, api_key
+        ))
+        .header("Content-Type", "application/json")
+        .json(&gemini_request)
+        .send()
+        .await
+        .expect("Error!!");
+
+    if response.status().is_success() {
+        let gemini_generate_response: GeminiGenerateContentResponse = response
+            .json()
+            .await
+            .expect("Failed to decode Gemini response");
+
+        dbg!(gemini_generate_response);
+    } else {
+        let a = response.text().await;
+        dbg!("Fucked!");
+        dbg!(a);
+    }
+}
 
 // Put this at the bottom of your .rs file
 #[cfg(test)]
 mod tests {
     use super::*; // Import your structs from the parent module
     use serde_json::json; // Use the json! macro for easy Value creation
+
+    #[tokio::test]
+    async fn test_gemini_toolcall_response() {
+        let chat_history = vec![Content {
+            parts: vec![GeminiPart {
+                thought: None,
+                thought_signature: None,
+                data: GeminiPartData::Text(
+                    "Can you explain to me why is the sky blue?".to_string(),
+                ),
+                metadata: None,
+                part_metadata: None,
+            }],
+            role: Some("user".to_string()),
+        }];
+
+        let schedule_meeting_properties = HashMap::from([
+            (
+                "attendees".to_string(),
+                Schema {
+                    data_type: Type::Array,
+                    type_specified_fields: HashMap::from([
+                        (
+                            "items".to_string(),
+                            json!(Schema {
+                                data_type: Type::String,
+                                type_specified_fields: HashMap::default()
+                            }),
+                        ),
+                        (
+                            "description".to_string(),
+                            json!("List of people attending the meeting."),
+                        ),
+                    ]),
+                },
+            ),
+            (
+                "date".to_string(),
+                Schema {
+                    data_type: Type::String,
+                    type_specified_fields: HashMap::from([(
+                        "description".to_string(),
+                        json!("Date of the meeting (e.g., '2024-07-29')"),
+                    )]),
+                },
+            ),
+            (
+                "time".to_string(),
+                Schema {
+                    data_type: Type::String,
+                    type_specified_fields: HashMap::from([(
+                        "description".to_string(),
+                        json!("Time of the meeting (e.g., '15:00')"),
+                    )]),
+                },
+            ),
+            (
+                "topic".to_string(),
+                Schema {
+                    data_type: Type::String,
+                    type_specified_fields: HashMap::from([(
+                        "description".to_string(),
+                        json!("The subject or topic of the meeting."),
+                    )]),
+                },
+            ),
+        ]);
+
+        let get_weather_properties = HashMap::from([(
+            "location".to_string(),
+            Schema {
+                data_type: Type::String,
+                type_specified_fields: HashMap::from([(
+                    "description".to_string(),
+                    json!("The location for the current weather report."),
+                )]),
+            },
+        )]);
+
+        let tools = vec![Tool {
+            functionDeclarations: Some(vec![
+                FunctionDeclaration {
+                    name: "schedule_meeting".to_string(),
+                    description:
+                        "Schedules a meeting with specified attendees at a given time and date."
+                            .to_string(),
+                    parameters: Some(Schema {
+                        data_type: Type::Object,
+                        type_specified_fields: HashMap::from([
+                            ("properties".to_string(), json!(schedule_meeting_properties)),
+                            (
+                                "required".to_string(),
+                                json!([
+                                    "attendees".to_string(),
+                                    "date".to_string(),
+                                    "time".to_string(),
+                                    "topic".to_string()
+                                ]),
+                            ),
+                        ]),
+                    }),
+                    extra_fields: HashMap::default(),
+                },
+                FunctionDeclaration {
+                    name: "get_weather".to_string(),
+                    description: "Get a current weather report for a given location.".to_string(),
+                    parameters: Some(Schema {
+                        data_type: Type::Object,
+                        type_specified_fields: HashMap::from([
+                            ("properties".to_string(), json!(get_weather_properties)),
+                            ("required".to_string(), json!(["location".to_string()])),
+                        ]),
+                    }),
+                    extra_fields: HashMap::default(),
+                },
+            ]),
+            extra_fields: HashMap::default(),
+        }];
+
+        gemini_chat(
+            chat_history,
+            tools,
+            "gemini-2.5-pro".to_string(),
+            "hahaha".to_string(),
+        )
+        .await;
+    }
 
     #[test]
     fn test_gemini_part_serde() {
