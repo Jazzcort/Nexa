@@ -31,3 +31,5 @@ async-stream = "0.3.6"
 tauri-plugin-secure-storage = "1.4.0"
 keyring = "3.6.3"
 
+[dev-dependencies]
+dotenv = "0.15"

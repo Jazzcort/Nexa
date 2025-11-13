@@ -162,10 +162,13 @@ pub struct Candidate {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct GeminiGenerateContentRequest {
     contents: Vec<Content>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<Tool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_config: Option<ToolConfig>,
 
     #[serde(flatten)]
     extra_fields: HashMap<String, Value>,
@@ -264,6 +267,7 @@ async fn gemini_chat(
     tools: Vec<Tool>,
     model_id: String,
     api_key: String,
+    tool_config: Option<ToolConfig>,
 ) {
     let client = reqwest::Client::new();
 
@@ -273,8 +277,11 @@ async fn gemini_chat(
             0 => None,
             _ => Some(tools),
         },
+        tool_config: tool_config,
         extra_fields: HashMap::default(),
     };
+
+    dbg!(serde_json::to_value(&gemini_request));
 
     let response = client
         .post(format!(
@@ -306,16 +313,17 @@ async fn gemini_chat(
 mod tests {
     use super::*; // Import your structs from the parent module
     use serde_json::json; // Use the json! macro for easy Value creation
+    use std::env;
 
     #[tokio::test]
     async fn test_gemini_toolcall_response() {
+        dotenv::dotenv().ok();
+
         let chat_history = vec![Content {
             parts: vec![GeminiPart {
                 thought: None,
                 thought_signature: None,
-                data: GeminiPartData::Text(
-                    "Can you explain to me why is the sky blue?".to_string(),
-                ),
+                data: GeminiPartData::Text("What is the weather now in Boston?".to_string()),
                 metadata: None,
                 part_metadata: None,
             }],
@@ -425,11 +433,20 @@ mod tests {
             extra_fields: HashMap::default(),
         }];
 
+        let tool_config = Some(ToolConfig {
+            function_calling_config: Some(FunctionCallingConfig {
+                mode: FunctionCallingMode::Auto,
+                allowed_function_names: None,
+            }),
+            extra_fields: HashMap::default(),
+        });
+
         gemini_chat(
             chat_history,
             tools,
             "gemini-2.5-pro".to_string(),
-            "hahaha".to_string(),
+            env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set for this test."),
+            None,
         )
         .await;
     }
