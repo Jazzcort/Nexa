@@ -30,6 +30,7 @@ serde_json = "1"
 async-stream = "0.3.6"
 tauri-plugin-secure-storage = "1.4.0"
 keyring = "3.6.3"
+tauri-plugin-store = "2"
 
 [dev-dependencies]
 dotenv = "0.15"

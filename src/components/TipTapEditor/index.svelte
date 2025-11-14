@@ -94,11 +94,11 @@
 					});
 				}
 
-				// Testing purpose
-				const text = editor.getText();
-				console.log(text);
-				const jsonObject = editor.getJSON();
-				console.log(jsonObject);
+			// Testing purpose
+			// const text = editor.getText();
+			// console.log(text);
+			// const jsonObject = editor.getJSON();
+			// console.log(jsonObject);
 		}
 	};
 

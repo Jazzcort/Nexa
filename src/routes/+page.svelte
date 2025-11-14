@@ -1,142 +1,293 @@
 <script lang="ts">
+  import type {
+    EmittedChatMessage,
+    ChatMessageWithId,
+    ChatMessage,
+  } from "$types";
+  import { onDestroy, onMount, tick } from "svelte";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { invoke } from "@tauri-apps/api/core";
+  import { ScrollArea } from "$lib/components/ui/scroll-area/index";
+  import { Textarea } from "$lib/components/ui/textarea/index";
+  import * as Item from "$lib/components/ui/item/index.js";
+  import { Button } from "$lib/components/ui/button/index";
+  import TipTapEditor from "$components/TipTapEditor/index.svelte";
+  import { v4 as uuidv4 } from "uuid";
+  import { modelState } from "$states/ollamaModelState.svelte";
+  import DropdownMenu from "$components/DropdownMenu.svelte";
+  import { Spinner } from "$lib/components/ui/spinner/index.js";
+  import { goto } from "$app/navigation";
+  import { chatHistoryStore } from "$lib/stores/chat-history.svelte";
+  //
+  let scrollTop = $state(0);
+  let scrollDown: HTMLElement | null;
+  let chatSendBtn: HTMLElement | null;
+  let userInputBox: HTMLElement | null;
+  let scrollingArea: HTMLElement | null;
+  let streaming = $state(false);
+  let isNearBottom = $state(true);
+  let didLoadChatHistory = $state(false);
+  const SCROLL_THRESHOLD = 100;
+  let userMessage: ChatMessage = $state({
+    role: "user",
+    content: "",
+  });
+
+  let chatHistory: ChatMessageWithId[] = $state([]);
+  let currentInputBoxIndex = $state(0);
+
+  const handleModelSelection = (index: number) => {
+    modelState.index = index;
+  };
+
+  const handleInputBoxSelection = (index: number) => {
+    currentInputBoxIndex = index;
+  };
+
+  const checkScrollPosition = () => {
+    if (!scrollingArea) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = scrollingArea;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    isNearBottom = distanceFromBottom <= SCROLL_THRESHOLD;
+  };
+
+  const scrollToBottom = () => {
+    if (scrollDown) {
+      scrollDown.scrollIntoView({
+        behavior: "instant",
+        block: "end",
+      });
+    }
+  };
+
+  const triggerStreamChat = (
+    index: number,
+    modifiedContent: ChatMessageWithId,
+  ) => {
+    console.log(
+      modifiedContent.content,
+      "modified content in trigger stream chat!!!",
+    );
+
+    if (index < 0 || index > chatHistoryStore.chatHistory.length || streaming) {
+      return;
+    }
+
+    chatHistory = [...chatHistory.slice(0, index)];
+    chatHistory.push(modifiedContent);
+    chatHistory.push({
+      id: uuidv4(),
+      role: "assistant",
+      content: "",
+      done: false,
+    });
+
+    streamChat();
+  };
+
+  const streamChat = async () => {
+    streaming = true;
+    invoke("stream_chat", {
+      history: { messages: chatHistory },
+      model: modelState.models[modelState.index],
+    });
+
+    chatHistoryStore.sync(chatHistory);
+
+    await tick();
+    scrollDown = document.getElementById(
+      `message-box-${chatHistory.length - 1}`,
+    );
+
+    scrollToBottom();
+    setTimeout(() => {
+      if (currentInputBoxIndex === chatHistory.length) {
+        userMessage.content = "";
+      }
+      userInputBox?.focus();
+    }, 80);
+  };
+
+  const normalUserInput = () => {
+    if (
+      chatHistory.length !== currentInputBoxIndex ||
+      !userMessage.content.trim()
+    ) {
+      return;
+    }
+
+    chatHistory.push({
+      ...userMessage,
+      id: uuidv4(),
+      done: true,
+    });
+    chatHistory.push({
+      id: uuidv4(),
+      role: "assistant",
+      content: "",
+      done: false,
+    });
+
+    handleInputBoxSelection(chatHistory.length);
+    streamChat();
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    switch (e.key) {
+      case "Enter":
+        if (e.shiftKey) {
+          // Add a new line, do nothing here
+        } else {
+          normalUserInput();
+        }
+
+        break;
+    }
+  };
+
+  onMount(() => {
+    chatSendBtn = document.getElementById("chat-send-btn");
+    userInputBox = document.getElementById("user-input-box");
+    scrollingArea = document.querySelector(
+      "#chat-history [data-slot='scroll-area-viewport']",
+    ) as HTMLElement;
+
+    if (scrollingArea) {
+      scrollingArea.addEventListener("scroll", checkScrollPosition);
+    }
+
+    if (userInputBox) {
+      userInputBox.addEventListener("keydown", handleKeyDown);
+    }
+
+    const interval = setInterval(() => {
+      if (chatHistoryStore.isReady) {
+        chatHistory = chatHistoryStore.chatHistory;
+        didLoadChatHistory = true;
+        clearInterval(interval);
+      }
+    }, 100);
+
+    let unlisten: UnlistenFn | undefined = undefined;
+
+    async function listenToStreamChat() {
+      unlisten = await listen<EmittedChatMessage>(
+        "stream_chat",
+        async (event) => {
+          if (chatHistory.length <= 0) {
+            return;
+          }
+
+          const idx = chatHistory.length - 1;
+          if (chatHistory[idx].id !== event.payload.id) {
+            return;
+          }
+
+          if (!event.payload.done) {
+            chatHistory[idx].content += event.payload.message.content;
+
+            if (isNearBottom) {
+              scrollToBottom();
+            }
+            await tick();
+          } else {
+            streaming = false;
+            chatHistory[idx].done = true;
+            chatHistoryStore.sync(chatHistory);
+          }
+        },
+      );
+    }
+
+    listenToStreamChat();
+
+    return () => {
+      if (userInputBox) {
+        userInputBox.removeEventListener("keydown", handleKeyDown);
+      }
+      if (scrollingArea) {
+        scrollingArea.removeEventListener("scroll", checkScrollPosition);
+      }
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  });
 </script>
 
-<main class="container h-[100vh] max-w-7xl">
-  <h1>Welcome to Tauri + Svelte</h1>
-
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
+<main class="app-container">
+  <div class="flex-1 flex flex-col mx-2 overflow-hidden">
+    <div class="h-[5px] w-full"></div>
+    <ScrollArea
+      id="chat-history"
+      class="flex flex-1 overflow-hidden border border-black rounded-xl"
+    >
+      {#if didLoadChatHistory}
+        {#each chatHistory as msg, i}
+          <TipTapEditor
+            id={`message-box-${i}`}
+            content={msg}
+            index={i}
+            {handleInputBoxSelection}
+            {triggerStreamChat}
+          />
+        {/each}
+      {:else}
+        <div class="h-full w-full justify-center items-center flex">
+          <Item.Root>
+            <Item.Content>
+              <Item.Title>{"Loading..."}<Spinner /></Item.Title>
+            </Item.Content>
+          </Item.Root>
+        </div>
+      {/if}
+    </ScrollArea>
+    <div class="h-[5px] w-full"></div>
   </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
+  <!-- <div class="border h-px w-full"></div> -->
+  <div class="m-2 flex flex-col min-h-[120px]">
+    <Textarea
+      id="user-input-box"
+      placeholder="Type your message here."
+      bind:value={userMessage.content}
+      onfocus={() => {
+        handleInputBoxSelection(chatHistory.length);
+      }}
+    />
+    <div class="flex flex-row-reverse justify-between w-full py-2">
+      <Button
+        id="chat-send-btn"
+        onclick={normalUserInput}
+        disabled={streaming || !didLoadChatHistory}>send</Button
+      >
+      <!-- Testing purpose -->
+      <!-- <p>{currentInputBoxIndex}</p> -->
+      <!-- <p>{chatHistory.length} total length</p> -->
+      <!-- <p>{currentInputBoxIndex === chatHistory.length}</p> -->
+      <Button onclick={() => goto("/config")}>Config</Button>
 
-  <a href="/chat">chat</a>
-  <a href="/config">config</a>
+      <DropdownMenu
+        index={modelState.index}
+        content={modelState.models}
+        handleSelection={handleModelSelection}
+      />
+    </div>
+  </div>
 </main>
 
 <style>
-  .logo.vite:hover {
-    filter: drop-shadow(0 0 2em #747bff);
-  }
-
-  .logo.svelte-kit:hover {
-    filter: drop-shadow(0 0 2em #ff3e00);
-  }
-
-  :root {
-    font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-    font-size: 16px;
-    line-height: 24px;
-    font-weight: 400;
-
-    color: #0f0f0f;
-    background-color: #f6f6f6;
-
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    -webkit-text-size-adjust: 100%;
-  }
-
-  .container {
-    margin: 0;
-    padding-top: 10vh;
+  :global(body) {
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    text-align: center;
+    height: 100vh;
+    margin: 0;
   }
-
-  .logo {
-    height: 6em;
-    padding: 1.5em;
-    will-change: filter;
-    transition: 0.75s;
-  }
-
-  .logo.tauri:hover {
-    filter: drop-shadow(0 0 2em #24c8db);
-  }
-
-  .row {
+  /* Make your app container grow to fill the space */
+  .app-container {
+    flex-grow: 1;
     display: flex;
-    justify-content: center;
-  }
-
-  a {
-    font-weight: 500;
-    color: #646cff;
-    text-decoration: inherit;
-  }
-
-  a:hover {
-    color: #535bf2;
-  }
-
-  h1 {
-    text-align: center;
-  }
-
-  input,
-  button {
-    border-radius: 8px;
-    border: 1px solid transparent;
-    padding: 0.6em 1.2em;
-    font-size: 1em;
-    font-weight: 500;
-    font-family: inherit;
-    color: #0f0f0f;
-    background-color: #ffffff;
-    transition: border-color 0.25s;
-    box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-  }
-
-  button {
-    cursor: pointer;
-  }
-
-  button:hover {
-    border-color: #396cd8;
-  }
-  button:active {
-    border-color: #396cd8;
-    background-color: #e8e8e8;
-  }
-
-  input,
-  button {
-    outline: none;
-  }
-
-  #greet-input {
-    margin-right: 5px;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      color: #f6f6f6;
-      background-color: #2f2f2f;
-    }
-
-    a:hover {
-      color: #24c8db;
-    }
-
-    input,
-    button {
-      color: #ffffff;
-      background-color: #0f0f0f98;
-    }
-    button:active {
-      background-color: #0f0f0f69;
-    }
+    flex-direction: column;
+    overflow: hidden;
   }
 </style>
