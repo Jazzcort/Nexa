@@ -91,6 +91,7 @@
     invoke("stream_chat", {
       history: { messages: chatHistory },
       model: modelState.models[modelState.index],
+      provider: "gemini",
     });
 
     chatHistoryStore.sync(chatHistory);
@@ -175,12 +176,16 @@
       unlisten = await listen<EmittedChatMessage>(
         "stream_chat",
         async (event) => {
+          console.log(event.payload.message);
+          console.log(event.payload.id);
+
           if (chatHistory.length <= 0) {
             return;
           }
 
           const idx = chatHistory.length - 1;
           if (chatHistory[idx].id !== event.payload.id) {
+            console.log("not correct id");
             return;
           }
 

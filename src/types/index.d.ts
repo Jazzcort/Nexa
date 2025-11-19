@@ -22,3 +22,8 @@ export interface ModelState {
   index: number;
   models: string[];
 }
+export type ConfigSection = "general" | "apiKeys";
+
+export interface GetItemResponse {
+  data: string;
+}
