@@ -1,7 +1,8 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod api;
+mod error;
 mod llm;
-use llm::base::{get_all_ollama_chat_models, stream_chat};
+use llm::commands::{get_all_ollama_chat_models, stream_chat};
 use tauri_plugin_secure_storage;
 
 #[tauri::command]
@@ -12,6 +13,7 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_secure_storage::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_secure_storage::init())

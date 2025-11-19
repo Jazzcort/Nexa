@@ -1,3 +1,4 @@
+use crate::error::NexaError;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 use std::collections::HashMap;
@@ -8,27 +9,27 @@ pub struct GeminiChatHistory {
     parts: Vec<GeminiPart>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiPart {
     #[serde(skip_serializing_if = "Option::is_none")]
-    thought: Option<bool>,
+    pub thought: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    thought_signature: Option<String>,
+    pub thought_signature: Option<String>,
 
     #[serde(flatten)]
-    data: GeminiPartData,
+    pub data: GeminiPartData,
 
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<GeminiPartMetadata>,
+    pub metadata: Option<GeminiPartMetadata>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_metadata: Option<HashMap<String, Value>>,
+    pub part_metadata: Option<HashMap<String, Value>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum GeminiPartData {
     Text(String),
@@ -81,7 +82,7 @@ pub enum GeminiPartData {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum GeminiPartMetadata {
     #[serde(rename_all = "camelCase")]
@@ -92,13 +93,13 @@ pub enum GeminiPartMetadata {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum FunctionResponsePart {
     InlineData(FunctionResponseBlob),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionResponseBlob {
     mime_type: String,
@@ -113,7 +114,7 @@ pub struct FunctionResponseFileData {
     display_name: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Language {
     #[serde(rename = "PYTHON")]
     Python,
@@ -121,7 +122,7 @@ pub enum Language {
     LanguageUnspecified,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum CodeExecutionOutcome {
     #[serde(rename = "OUTCOME_UNSPECIFIED")]
     Unspecified,
@@ -133,7 +134,7 @@ pub enum CodeExecutionOutcome {
     DeadlineExceeded,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Scheduling {
     #[serde(rename = "SCHEDULING_UNSPECIFIED")]
     Unspecified,
@@ -147,18 +148,18 @@ pub enum Scheduling {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct GeminiGenerateContentResponse {
-    candidates: Vec<Candidate>,
+    pub candidates: Vec<Candidate>,
 
     #[serde(flatten)]
-    extra_fields: HashMap<String, Value>,
+    pub extra_fields: HashMap<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Candidate {
-    content: Content,
+    pub content: Content,
 
     #[serde(flatten)]
-    extra_fields: HashMap<String, Value>,
+    pub extra_fields: HashMap<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -176,12 +177,12 @@ pub struct GeminiGenerateContentRequest {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Content {
-    parts: Vec<GeminiPart>,
+    pub parts: Vec<GeminiPart>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    role: Option<String>,
+    pub role: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Tool {
     #[serde(skip_serializing_if = "Option::is_none")]
     functionDeclarations: Option<Vec<FunctionDeclaration>>,
@@ -190,7 +191,7 @@ pub struct Tool {
     extra_fields: HashMap<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct FunctionDeclaration {
     name: String,
     description: String,
@@ -201,7 +202,7 @@ pub struct FunctionDeclaration {
     extra_fields: HashMap<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Schema {
     #[serde(rename = "type")]
     data_type: Type,
@@ -210,7 +211,7 @@ pub struct Schema {
     type_specified_fields: HashMap<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Type {
     #[serde(rename = "TYPE_UNSPECIFIED")]
     TypeUnspecified,
@@ -230,7 +231,7 @@ pub enum Type {
     Null,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -240,7 +241,7 @@ pub struct ToolConfig {
     extra_fields: HashMap<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionCallingConfig {
     mode: FunctionCallingMode,
@@ -248,7 +249,7 @@ pub struct FunctionCallingConfig {
     allowed_function_names: Option<Vec<String>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum FunctionCallingMode {
     #[serde(rename = "MODE_UNSPECIFIED")]
     ModeUnspecified,
@@ -262,13 +263,13 @@ pub enum FunctionCallingMode {
     Validated,
 }
 
-async fn gemini_chat(
+pub async fn gemini_chat(
     chat_history: Vec<Content>,
     tools: Vec<Tool>,
     model_id: String,
     api_key: String,
     tool_config: Option<ToolConfig>,
-) {
+) -> Result<GeminiGenerateContentResponse, NexaError> {
     let client = reqwest::Client::new();
 
     let gemini_request = GeminiGenerateContentRequest {
@@ -281,8 +282,6 @@ async fn gemini_chat(
         extra_fields: HashMap::default(),
     };
 
-    dbg!(serde_json::to_value(&gemini_request));
-
     let response = client
         .post(format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
@@ -291,20 +290,18 @@ async fn gemini_chat(
         .header("Content-Type", "application/json")
         .json(&gemini_request)
         .send()
-        .await
-        .expect("Error!!");
+        .await?;
 
     if response.status().is_success() {
-        let gemini_generate_response: GeminiGenerateContentResponse = response
-            .json()
-            .await
-            .expect("Failed to decode Gemini response");
+        let gemini_generate_response: GeminiGenerateContentResponse = response.json().await?;
 
-        dbg!(gemini_generate_response);
+        Ok(gemini_generate_response)
     } else {
-        let a = response.text().await;
-        dbg!("Fucked!");
-        dbg!(a);
+        dbg!(response);
+        Ok(GeminiGenerateContentResponse {
+            candidates: vec![],
+            extra_fields: HashMap::default(),
+        })
     }
 }
 
