@@ -2,6 +2,7 @@
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
 	import { Button } from "$lib/components/ui/button/index.js";
 	import Icon from "@iconify/svelte";
+	import type { Model } from "$types";
 
 	let {
 		class: className,
@@ -11,7 +12,7 @@
 	}: {
 		class?: string;
 		index: number;
-		content: string[];
+		content: Model[];
 		handleSelection: (index: number) => void;
 	} = $props();
 </script>
@@ -25,7 +26,7 @@
 				variant="ghost"
 				size="sm"
 			>
-				{content[index]}
+				{content[index].modelId}
 				<Icon
 					icon="dashicons:arrow-down"
 					width="20"
@@ -43,7 +44,8 @@
 					checked={i === index}
 					onclick={() => {
 						handleSelection(i);
-					}}>{model}</DropdownMenu.CheckboxItem
+					}}
+					>{model.modelId}</DropdownMenu.CheckboxItem
 				>
 			{/each}
 		</DropdownMenu.Group>

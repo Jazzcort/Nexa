@@ -1,9 +1,19 @@
-import type { ModelState } from "$types";
+import type { ModelState, Model } from "$types";
 import { invoke } from "@tauri-apps/api/core";
 
 // const chat_models: string[] = await invoke("get_all_ollama_chat_models");
 
 export const modelState = $state<ModelState>({
-  models: ["granite3.3:8b", "qwen3:14b"],
+  models: [
+    { provider: "ollama", modelId: "granite3.3:8b" },
+    {
+      provider: "ollama",
+      modelId: "qwen3:14b",
+    },
+    {
+      provider: "gemini",
+      modelId: "gemini-3-pro-preview",
+    },
+  ],
   index: 0,
 });

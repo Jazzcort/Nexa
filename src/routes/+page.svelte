@@ -90,8 +90,8 @@
     streaming = true;
     invoke("stream_chat", {
       history: { messages: chatHistory },
-      model: modelState.models[modelState.index],
-      provider: "gemini",
+      model: modelState.models[modelState.index].modelId,
+      provider: modelState.models[modelState.index].provider,
     });
 
     chatHistoryStore.sync(chatHistory);
@@ -178,6 +178,7 @@
         async (event) => {
           console.log(event.payload.message);
           console.log(event.payload.id);
+          console.log(event.payload.done);
 
           if (chatHistory.length <= 0) {
             return;

@@ -20,8 +20,16 @@ export interface EmittedChatMessage {
 
 export interface ModelState {
   index: number;
-  models: string[];
+  models: Model[];
 }
+
+export type Provider = "ollama" | "gemini";
+
+export interface Model {
+  provider: Provider;
+  modelId: string;
+}
+
 export type ConfigSection = "general" | "apiKeys";
 
 export interface GetItemResponse {
