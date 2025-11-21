@@ -43,7 +43,7 @@ pub async fn stream_chat(app: AppHandle, history: ChatHistory, model: String, pr
             let api_key = entry.get_password().expect("Keychain Error");
 
             let gemini = Gemini {
-                model_id: String::from("gemini-2.5-pro"),
+                model_id: model,
                 tools: vec![],
                 api_key: api_key,
                 tool_config: None,
@@ -57,8 +57,15 @@ pub async fn stream_chat(app: AppHandle, history: ChatHistory, model: String, pr
             let stream = stream.unwrap();
             pin_mut!(stream);
 
-            while let Some(message) = stream.next().await {
-                _ = app.emit("stream_chat", message);
+            while let Some(item) = stream.next().await {
+                match item {
+                    Ok(message) => {
+                        _ = app.emit("stream_chat", message);
+                    }
+                    Err(e) => {
+                        dbg!(e);
+                    }
+                }
             }
         }
         Provider::Ollama => {

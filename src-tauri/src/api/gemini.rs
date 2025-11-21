@@ -1,7 +1,10 @@
 use crate::error::NexaError;
+use futures::stream::{self, StreamExt};
+use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 use std::collections::HashMap;
+use std::str::from_utf8;
 use tauri_plugin_http::reqwest;
 
 pub struct GeminiChatHistory {
@@ -155,6 +158,11 @@ pub struct GeminiGenerateContentResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct GeminiStreamGenerateContentResponse {
+    pub data: GeminiGenerateContentResponse,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Candidate {
     pub content: Content,
 
@@ -175,7 +183,7 @@ pub struct GeminiGenerateContentRequest {
     extra_fields: HashMap<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Content {
     pub parts: Vec<GeminiPart>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -269,7 +277,7 @@ pub async fn gemini_chat(
     model_id: String,
     api_key: String,
     tool_config: Option<ToolConfig>,
-) -> Result<GeminiGenerateContentResponse, NexaError> {
+) -> Result<impl Stream<Item = Result<GeminiGenerateContentResponse, NexaError>>, NexaError> {
     let client = reqwest::Client::new();
 
     let gemini_request = GeminiGenerateContentRequest {
@@ -284,25 +292,102 @@ pub async fn gemini_chat(
 
     let response = client
         .post(format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-            model_id, api_key
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
+            model_id
         ))
+        .header("x-goog-api-key", api_key)
         .header("Content-Type", "application/json")
         .json(&gemini_request)
         .send()
         .await?;
 
-    if response.status().is_success() {
-        let gemini_generate_response: GeminiGenerateContentResponse = response.json().await?;
+    let result = response.error_for_status();
 
-        Ok(gemini_generate_response)
-    } else {
-        dbg!(response);
-        Ok(GeminiGenerateContentResponse {
-            candidates: vec![],
-            extra_fields: HashMap::default(),
-        })
+    if let Err(e) = result {
+        return Err(NexaError::Reqwest(e));
     }
+
+    let result = result.unwrap();
+
+    // if response.status().is_success() {
+    //     let gemini_generate_response: GeminiGenerateContentResponse = response.json().await?;
+    //
+    //     Ok(gemini_generate_response)
+    // } else {
+    //     dbg!(response);
+    //     Ok(GeminiGenerateContentResponse {
+    //         candidates: vec![],
+    //         extra_fields: HashMap::default(),
+    //     })
+    // }
+
+    let mut stream = result.bytes_stream();
+
+    let stream = stream::unfold(stream, |mut stream| async move {
+        if let Some(item) = stream.next().await {
+            return match item {
+                Ok(bytes) => {
+                    let msg = from_utf8(&bytes).unwrap();
+                    let trimed_msg = msg.trim().trim_start_matches("data: ");
+                    if trimed_msg.is_empty() {
+                        return None;
+                    }
+
+                    let res: GeminiGenerateContentResponse =
+                        serde_json::from_str(trimed_msg).unwrap();
+                    Some((Ok(res), stream))
+                }
+                Err(e) => Some((Err(NexaError::Reqwest(e)), stream)),
+            };
+        }
+        None
+    });
+
+    // let mut content = Content {
+    //     parts: vec![],
+    //     role: Some("model".to_string()),
+    // };
+
+    // while let Some(item) = stream.next().await {
+    //     match item {
+    //         Ok(bytes) => {
+    //             let msg = from_utf8(&bytes).unwrap();
+    //             let trimed_msg = msg.trim().trim_start_matches("data: ");
+    //             dbg!(&trimed_msg);
+    //             if trimed_msg.is_empty() {
+    //                 break;
+    //             }
+    //             let res: GeminiGenerateContentResponse = serde_json::from_str(trimed_msg).unwrap();
+    //
+    //             if let Some(candidate_ref) = res.candidates.first() {
+    //                 content
+    //                     .parts
+    //                     .extend(candidate_ref.content.parts.clone().into_iter());
+    //             }
+    //         }
+    //         Err(e) => {
+    //             return Err(NexaError::Reqwest(e));
+    //         }
+    //     }
+    // }
+    return Ok(stream);
+    // return Ok(GeminiGenerateContentResponse {
+    //     candidates: vec![Candidate {
+    //         content: content,
+    //         extra_fields: HashMap::default(),
+    //     }],
+    //     extra_fields: HashMap::default(),
+    // });
+
+    // let response = client
+    //     .post(format!(
+    //         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+    //         model_id, api_key
+    //     ))
+    //     .header("Content-Type", "application/json")
+    //     .json(&gemini_request)
+    //     .send()
+    //     .await?;
 }
 
 // Put this at the bottom of your .rs file

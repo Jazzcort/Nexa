@@ -26,7 +26,7 @@ pub trait LLM {
     async fn stream_chat(
         &self,
         history: ChatHistory,
-    ) -> Result<impl Stream<Item = EmittedChatMessage>, NexaError>;
+    ) -> Result<impl Stream<Item = Result<EmittedChatMessage, NexaError>>, NexaError>;
 }
 
 #[derive(Deserialize, Debug)]
