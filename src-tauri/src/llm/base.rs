@@ -1,19 +1,6 @@
-use futures::Future;
-use futures_util::pin_mut;
-use futures_util::stream::Stream;
-use futures_util::StreamExt;
-// use futures_util::StreamExt;
 use crate::error::NexaError;
-use crate::llm::ollama::{
-    OllamaChatRequest, OllamaChatResponse, OllamaModelInfo, OllamaModelTag, OllamaTagsResponse,
-};
+use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::str::from_utf8;
-use tauri::{AppHandle, Emitter};
-use tauri_plugin_http::reqwest;
-// use tokio::io::{AsyncReadExt, Result};
-// use tokio_util::io::StreamReader;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "lowercase")]

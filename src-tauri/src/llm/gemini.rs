@@ -2,12 +2,9 @@ use crate::api::gemini::gemini_chat;
 use crate::api::gemini::{Content, GeminiPart, GeminiPartData, Tool, ToolConfig};
 use crate::error::NexaError;
 use crate::llm::base::{ChatHistory, ChatMessage, EmittedChatMessage, Role, LLM};
+use futures::stream;
 use futures::StreamExt;
-use futures::{pin_mut, stream};
 use futures_util::Stream;
-use tokio::time::{sleep, Duration};
-
-static TEXT_OUTPUT_STEPS: usize = 10;
 
 pub struct Gemini {
     pub model_id: String,
@@ -42,7 +39,7 @@ impl LLM for Gemini {
             })
             .collect();
 
-        let mut stream = gemini_chat(
+        let stream = gemini_chat(
             contents,
             self.tools.clone(),
             self.model_id.clone(),
@@ -107,72 +104,6 @@ impl LLM for Gemini {
                 }
             },
         ))
-
-        // if response.candidates.len() < 1 {
-        //     return Err(NexaError::Gemini(
-        //         "No candidate in the response".to_string(),
-        //     ));
-        // }
-        //
-        // let first_candidate = response.candidates.first().clone().unwrap();
-        //
-        // let mut text_output = String::new();
-        // let parts = first_candidate.content.parts.iter();
-        // for part in parts {
-        //     match &part.data {
-        //         GeminiPartData::Text(text) => text_output += text,
-        //         (_) => {}
-        //     }
-        // }
-        //
-        // let mut text_output_vec: Vec<char> = text_output.chars().collect();
-        // let initial_state: usize = 0;
-        // let should_terminate_stream = false;
-        //
-        // Ok(stream::unfold(
-        //     (initial_state, text_output_vec, id, should_terminate_stream),
-        //     |(mut start, text_output_vec, id, mut should_terminate_stream)| async move {
-        //         // Simulate stream generation
-        //         sleep(Duration::from_millis(50)).await;
-        //
-        //         // Default item
-        //         let mut yielded_item = EmittedChatMessage {
-        //             id: id.clone(),
-        //             message: ChatMessage {
-        //                 role: Role::Assistant,
-        //                 content: String::new(),
-        //                 images: None,
-        //             },
-        //             done: false,
-        //         };
-        //
-        //         // Terminate the stream
-        //         if should_terminate_stream {
-        //             return None;
-        //         }
-        //
-        //         // Hit the end of the test ouput
-        //         if start >= text_output_vec.len() {
-        //             yielded_item.done = true;
-        //             should_terminate_stream = true;
-        //
-        //             return Some((
-        //                 yielded_item,
-        //                 (start, text_output_vec, id, should_terminate_stream),
-        //             ));
-        //         }
-        //
-        //         // Streaming
-        //         let end = (start + TEXT_OUTPUT_STEPS).min(text_output_vec.len());
-        //         let chunk = &text_output_vec[start..end];
-        //         yielded_item.message.content = chunk.iter().collect();
-        //         start = end;
-        //         Some((
-        //             yielded_item,
-        //             (start, text_output_vec, id, should_terminate_stream),
-        //         ))
-        //     },
-        // ))
     }
 }
 

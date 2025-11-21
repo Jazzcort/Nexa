@@ -7,11 +7,6 @@ use std::collections::HashMap;
 use std::str::from_utf8;
 use tauri_plugin_http::reqwest;
 
-pub struct GeminiChatHistory {
-    role: String,
-    parts: Vec<GeminiPart>,
-}
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiPart {
@@ -191,9 +186,10 @@ pub struct Content {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Tool {
     #[serde(skip_serializing_if = "Option::is_none")]
-    functionDeclarations: Option<Vec<FunctionDeclaration>>,
+    function_declarations: Option<Vec<FunctionDeclaration>>,
 
     #[serde(flatten)]
     extra_fields: HashMap<String, Value>,
@@ -308,20 +304,7 @@ pub async fn gemini_chat(
     }
 
     let result = result.unwrap();
-
-    // if response.status().is_success() {
-    //     let gemini_generate_response: GeminiGenerateContentResponse = response.json().await?;
-    //
-    //     Ok(gemini_generate_response)
-    // } else {
-    //     dbg!(response);
-    //     Ok(GeminiGenerateContentResponse {
-    //         candidates: vec![],
-    //         extra_fields: HashMap::default(),
-    //     })
-    // }
-
-    let mut stream = result.bytes_stream();
+    let stream = result.bytes_stream();
 
     let stream = stream::unfold(stream, |mut stream| async move {
         if let Some(item) = stream.next().await {
@@ -343,54 +326,9 @@ pub async fn gemini_chat(
         None
     });
 
-    // let mut content = Content {
-    //     parts: vec![],
-    //     role: Some("model".to_string()),
-    // };
-
-    // while let Some(item) = stream.next().await {
-    //     match item {
-    //         Ok(bytes) => {
-    //             let msg = from_utf8(&bytes).unwrap();
-    //             let trimed_msg = msg.trim().trim_start_matches("data: ");
-    //             dbg!(&trimed_msg);
-    //             if trimed_msg.is_empty() {
-    //                 break;
-    //             }
-    //             let res: GeminiGenerateContentResponse = serde_json::from_str(trimed_msg).unwrap();
-    //
-    //             if let Some(candidate_ref) = res.candidates.first() {
-    //                 content
-    //                     .parts
-    //                     .extend(candidate_ref.content.parts.clone().into_iter());
-    //             }
-    //         }
-    //         Err(e) => {
-    //             return Err(NexaError::Reqwest(e));
-    //         }
-    //     }
-    // }
-    return Ok(stream);
-    // return Ok(GeminiGenerateContentResponse {
-    //     candidates: vec![Candidate {
-    //         content: content,
-    //         extra_fields: HashMap::default(),
-    //     }],
-    //     extra_fields: HashMap::default(),
-    // });
-
-    // let response = client
-    //     .post(format!(
-    //         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-    //         model_id, api_key
-    //     ))
-    //     .header("Content-Type", "application/json")
-    //     .json(&gemini_request)
-    //     .send()
-    //     .await?;
+    Ok(stream)
 }
 
-// Put this at the bottom of your .rs file
 #[cfg(test)]
 mod tests {
     use super::*; // Import your structs from the parent module
@@ -476,7 +414,7 @@ mod tests {
         )]);
 
         let tools = vec![Tool {
-            functionDeclarations: Some(vec![
+            function_declarations: Some(vec![
                 FunctionDeclaration {
                     name: "schedule_meeting".to_string(),
                     description:
@@ -515,15 +453,7 @@ mod tests {
             extra_fields: HashMap::default(),
         }];
 
-        let tool_config = Some(ToolConfig {
-            function_calling_config: Some(FunctionCallingConfig {
-                mode: FunctionCallingMode::Auto,
-                allowed_function_names: None,
-            }),
-            extra_fields: HashMap::default(),
-        });
-
-        gemini_chat(
+        let _ = gemini_chat(
             chat_history,
             tools,
             "gemini-2.5-pro".to_string(),

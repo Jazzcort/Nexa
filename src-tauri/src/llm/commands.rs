@@ -5,10 +5,9 @@ use crate::llm::ollama::{
     OllamaChatRequest, OllamaChatResponse, OllamaModelInfo, OllamaModelTag, OllamaTagsResponse,
 };
 use futures::pin_mut;
-use futures_util::{Stream, StreamExt};
+use futures_util::StreamExt;
 use keyring::Entry;
 use serde_json::json;
-use std::pin::pin;
 use std::str::from_utf8;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_http::reqwest;
@@ -16,12 +15,9 @@ use tauri_plugin_http::reqwest;
 #[tauri::command]
 pub async fn stream_chat(app: AppHandle, history: ChatHistory, model: String, provider: Provider) {
     let client = reqwest::Client::new();
-    // let messages = vec![ChatMessage {
-    //     role: Role::User,
-    //     content: "My name is Tao.".to_string(),
-    //     images: None,
-    // }];
+
     dbg!(&history);
+
     if history.messages.len() == 0 {
         return;
     }
