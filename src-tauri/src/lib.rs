@@ -2,6 +2,7 @@
 mod api;
 mod error;
 mod llm;
+mod mcp;
 use llm::commands::{get_all_ollama_chat_models, stream_chat};
 use tauri_plugin_secure_storage;
 
