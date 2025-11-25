@@ -335,7 +335,8 @@ mod tests {
     use serde_json::json; // Use the json! macro for easy Value creation
     use std::env;
 
-    #[tokio::test]
+    // Just a handy test for the Gemini API
+    // #[tokio::test]
     async fn test_gemini_toolcall_response() {
         dotenv::dotenv().ok();
 
