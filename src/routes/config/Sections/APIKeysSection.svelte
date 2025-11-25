@@ -50,8 +50,6 @@
 <div class="flex flex-col justify-center items-center">
 	<h1>API Keys</h1>
 	<h3>In Progress 🚧</h3>
-	<h3>{`input: ${geminiAPIKeyInput}`}</h3>
-	<Button onclick={() => console.log(getAPIKey("gagaga"))}>test</Button>
 
 	<Item.Root variant="outline" class="w-[90%]">
 		<Item.Content>
