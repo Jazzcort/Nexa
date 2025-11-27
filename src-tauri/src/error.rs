@@ -8,4 +8,6 @@ pub enum NexaError {
     Reqwest(#[from] tauri_plugin_http::reqwest::Error),
     #[error("Gemini Error: {0}")]
     Gemini(String),
+    #[error("MCP Connection Error: {0}")]
+    MCPConnection(String),
 }

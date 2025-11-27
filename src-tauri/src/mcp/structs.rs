@@ -13,12 +13,20 @@ pub(crate) enum Id {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(untagged)]
+pub(crate) enum MCPDataPacket {
+    Request(MCPRequest),
+    Response(MCPResponse),
+    Notification(MCPNotification),
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub(crate) struct MCPRequest {
-    jsonrpc: String,
-    id: Id,
-    method: String,
+    pub(crate) jsonrpc: String,
+    pub(crate) id: Id,
+    pub(crate) method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    params: Option<HashMap<String, Value>>,
+    pub(crate) params: Option<HashMap<String, Value>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -46,10 +54,10 @@ pub(crate) enum MCPResponse {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub(crate) struct MCPNotification {
-    jsonrpc: String,
-    method: String,
+    pub(crate) jsonrpc: String,
+    pub(crate) method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    params: Option<HashMap<String, Value>>,
+    pub(crate) params: Option<HashMap<String, Value>>,
 }
 
 #[cfg(test)]
