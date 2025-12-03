@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub(crate) static JSON_RPC: &str = "2.0";
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Debug)]
 #[serde(untagged)]
 pub(crate) enum Id {
     NumberId(u64),
@@ -26,15 +24,15 @@ pub(crate) struct MCPRequest {
     pub(crate) id: Id,
     pub(crate) method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) params: Option<HashMap<String, Value>>,
+    pub(crate) params: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub(crate) struct MCPError {
-    code: i32,
-    message: String,
+    pub(crate) code: i32,
+    pub(crate) message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<Value>,
+    pub(crate) data: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -43,7 +41,7 @@ pub(crate) enum MCPResponse {
     Success {
         jsonrpc: String,
         id: Id,
-        result: HashMap<String, Value>,
+        result: Value,
     },
     Fail {
         jsonrpc: String,
@@ -57,7 +55,81 @@ pub(crate) struct MCPNotification {
     pub(crate) jsonrpc: String,
     pub(crate) method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) params: Option<HashMap<String, Value>>,
+    pub(crate) params: Option<Value>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub(crate) enum Role {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "assistant")]
+    Assistant,
+}
+
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+pub(crate) struct Annotations {
+    audience: Option<Vec<Role>>,
+    last_modified: Option<String>,
+    priority: Option<f64>,
+}
+
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+pub(crate) struct TextContent {
+    #[serde(rename = "_meta")]
+    _meta: Option<Value>,
+    annotations: Option<Annotations>,
+    text: String,
+    #[serde(rename = "type")]
+    data_type: String,
+}
+
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(untagged)]
+pub(crate) enum ContentBlock {
+    Text(TextContent),
+}
+
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ToolAnnotations {
+    destructive_hint: Option<bool>,
+    idempotent_hint: Option<bool>,
+    open_world_hint: Option<bool>,
+    read_only_hint: Option<bool>,
+    title: Option<String>,
+}
+
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+pub(crate) struct FunctionSchema {
+    properties: Option<Value>,
+    required: Option<Vec<String>>,
+    #[serde(rename = "type")]
+    data_type: String,
+}
+
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Tool {
+    #[serde(rename = "_meta")]
+    _meta: Option<Value>,
+    annotations: Option<ToolAnnotations>,
+    description: Option<String>,
+    input_schema: FunctionSchema,
+    name: String,
+    output_schema: Option<FunctionSchema>,
+    title: Option<String>,
+}
+
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ListToolsResult {
+    #[serde(rename = "_meta")]
+    _meta: Option<Value>,
+    next_cursor: Option<String>,
+    tools: Vec<Tool>,
+
+    #[serde(flatten)]
+    extra_fields: Value,
 }
 
 #[cfg(test)]
@@ -100,13 +172,10 @@ mod tests {
         let expected_mcp_notification = MCPNotification {
             jsonrpc: JSON_RPC.to_string(),
             method: String::from("notifications/cancelled"),
-            params: Some(HashMap::from([
-                (String::from("requestId"), json!(String::from("234"))),
-                (
-                    String::from("reason"),
-                    json!(String::from("User requested cancellation")),
-                ),
-            ])),
+            params: Some(json!({
+                "requestId": "234",
+                "reason": "User requested cancellation"
+            })),
         };
 
         let deserialized_notification: MCPNotification =
@@ -135,17 +204,12 @@ mod tests {
         let expected_mcp_response = MCPResponse::Success {
             jsonrpc: JSON_RPC.to_string(),
             id: Id::NumberId(1234),
-            result: HashMap::from([
-                (String::from("temperature"), json!(String::from("33"))),
-                (
-                    String::from("area"),
-                    json!(vec![
-                        String::from("Cambridge"),
-                        String::from("Allston"),
-                        String::from("Medford"),
-                    ]),
-                ),
-            ]),
+            result: json!({
+                "temperature": "33",
+                "area": [
+                    "Cambridge", "Allston", "Medford"
+                ]
+            }),
         };
 
         let deserialized_response: MCPResponse = serde_json::from_str(raw_json_string).unwrap();
@@ -176,13 +240,12 @@ mod tests {
             error: MCPError {
                 code: -32700,
                 message: String::from("Parsing error"),
-                data: Some(json!(HashMap::from([(
-                    String::from("arguments"),
-                    HashMap::from([(
-                        String::from("locations"),
-                        vec![String::from("Boston"), String::from("New York")]
-                    )])
-                )]))),
+                data: Some(json!({
+                    "arguments": {
+                        "locations": ["Boston", "New York"]
+                    }
+                }
+                )),
             },
         };
 
@@ -231,10 +294,9 @@ mod tests {
             jsonrpc: JSON_RPC.to_string(),
             id: Id::NumberId(14233),
             method: String::from("tool/call"),
-            params: Some(HashMap::from([(
-                String::from("data"),
-                json!(String::from("Required data")),
-            )])),
+            params: Some(json!({
+                "data": "Required data"
+            })),
         };
 
         let serialized_request: MCPRequest = serde_json::from_str(raw_json_string).unwrap();

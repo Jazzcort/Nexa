@@ -1,13 +1,60 @@
 use crate::error::NexaError;
-use serde_json::{self, Value};
+use crate::mcp::structs::{Id, MCPDataPacket};
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::{self, json, Value};
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc::{self, Receiver};
+use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
+
+#[async_trait]
+pub trait MCPTransportWriter: Send + Sync {
+    async fn send(&self, data: Value) -> Result<(), NexaError>;
+}
+
+#[async_trait]
+pub trait MCPTransportReader: Send + Sync {
+    async fn receive(&mut self) -> Result<MCPDataPacket, NexaError>;
+}
+
+pub(crate) struct StdioWriter {
+    stdin: Mutex<ChildStdin>,
+
+    _child: Child,
+}
+
+#[async_trait]
+impl MCPTransportWriter for StdioWriter {
+    async fn send(&self, data: Value) -> Result<(), NexaError> {
+        let mut stdin_handle = self.stdin.lock().await;
+
+        let mut bytes = serde_json::to_vec(&data)?;
+        bytes.push(b'\n');
+        stdin_handle.write_all(&bytes).await?;
+
+        Ok(stdin_handle.flush().await?)
+    }
+}
+
+pub(crate) struct StdioReader {
+    stdout: BufReader<ChildStdout>,
+}
+
+#[async_trait]
+impl MCPTransportReader for StdioReader {
+    async fn receive(&mut self) -> Result<MCPDataPacket, NexaError> {
+        let mut line = String::new();
+        self.stdout.read_line(&mut line).await?;
+
+        Ok(serde_json::from_str(line.trim())?)
+    }
+}
 
 pub(crate) enum MCPConnection {
     Stdio(MCPStdioConnection),
@@ -16,6 +63,122 @@ pub(crate) enum MCPConnection {
 pub(crate) struct MCPStdioConnection {
     command: String,
     args: Vec<String>,
+    stdin: Mutex<ChildStdin>,
+    stdout: Arc<Mutex<BufReader<ChildStdout>>>,
+
+    _child_process: Child,
+}
+
+pub(crate) fn mcp_stdio_connect<S, I>(
+    command: S,
+    args: I,
+) -> Result<(StdioWriter, StdioReader), NexaError>
+where
+    S: Into<String>,
+    I: IntoIterator<Item = S>,
+{
+    let mut child = Command::new(command.into())
+        .args(args.into_iter().map(|s| s.into()))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or(NexaError::MCPConnection(String::from(
+            "Missing stdin for stdio type MCP",
+        )))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or(NexaError::MCPConnection(String::from(
+            "Missing stdout for stdio type MCP",
+        )))?;
+
+    let reader = BufReader::new(stdout);
+
+    Ok((
+        StdioWriter {
+            stdin: Mutex::new(stdin),
+            _child: child,
+        },
+        StdioReader { stdout: reader },
+    ))
+}
+
+impl MCPStdioConnection {
+    pub fn connect(
+        command: impl Into<String>,
+        args: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<Self, NexaError> {
+        let args: Vec<String> = args.into_iter().map(|s| s.into()).collect();
+        let command: String = command.into();
+
+        let mut child = Command::new(command.clone())
+            .args(args.clone())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or(NexaError::MCPConnection(String::from(
+                "Missing stdin for stdio type MCP",
+            )))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or(NexaError::MCPConnection(String::from(
+                "Missing stdout for stdio type MCP",
+            )))?;
+
+        let reader = BufReader::new(stdout);
+
+        Ok(MCPStdioConnection {
+            command: command,
+            args,
+            stdin: Mutex::new(stdin),
+            stdout: Arc::new(Mutex::new(reader)),
+            _child_process: child,
+        })
+    }
+
+    fn raise_for_output_borrowed(&self) -> Result<(), NexaError> {
+        if Arc::strong_count(&self.stdout) > 1 {
+            return Err(NexaError::MCPConnection(String::from(
+                "Stdout is borrowed by another process",
+            )));
+        }
+
+        Ok(())
+    }
+
+    pub async fn send<S: Serialize>(&self, data: S) -> Result<(), NexaError> {
+        let mut stdin_handle = self.stdin.lock().await;
+
+        let mut bytes = serde_json::to_vec(&data)?;
+        bytes.push(b'\n');
+        stdin_handle.write_all(&bytes).await?;
+
+        Ok(stdin_handle.flush().await?)
+    }
+
+    pub async fn receive(&self) -> Result<MCPDataPacket, NexaError> {
+        self.raise_for_output_borrowed()?;
+
+        let mut line = String::new();
+        let mut stdout_handle = self.stdout.lock().await;
+        stdout_handle.read_line(&mut line).await?;
+
+        Ok(serde_json::from_str(line.trim())?)
+    }
+
+    pub async fn borrow_output(&self) -> Result<Arc<Mutex<BufReader<ChildStdout>>>, NexaError> {
+        self.raise_for_output_borrowed()?;
+        Ok(self.stdout.clone())
+    }
 }
 
 #[cfg(test)]
@@ -64,13 +227,7 @@ mod tests {
             "method": "initialize",
             "params": {
                 "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "roots": {
-                        "listChanged": true
-                    },
-                "sampling": {},
-                "elicitation": {}
-                },
+                "capabilities": {},
                 "clientInfo": {
                     "name": "ExampleClient",
                     "title": "Example Client Display Name",
@@ -87,12 +244,13 @@ mod tests {
             sleep(Duration::from_secs(3)).await;
             let json_string = serde_json::to_string(&initialize_request).unwrap();
             dbg!(&json_string);
-            dbg!("initialize!!");
             let _ = stdin_arc_copy
                 .lock()
                 .await
                 .write_all((json_string + "\n").as_bytes())
                 .await;
+
+            dbg!("initialize!!");
         });
 
         // Ping
@@ -106,15 +264,38 @@ mod tests {
         let stdin_arc_copy = stdin_arc.clone();
 
         tokio::task::spawn(async move {
-            sleep(Duration::from_secs(6)).await;
-
-            dbg!("ping!!");
+            sleep(Duration::from_secs(9)).await;
 
             let _ = stdin_arc_copy
                 .lock()
                 .await
-                .write_all(serde_json::to_string(&ping_request).unwrap().as_bytes())
+                .write_all((serde_json::to_string(&ping_request).unwrap() + "\n").as_bytes())
                 .await;
+
+            dbg!("ping!!");
+        });
+
+        // Tool listing
+        let tools_listing_request = MCPRequest {
+            jsonrpc: JSON_RPC.to_string(),
+            id: Id::NumberId(2),
+            method: String::from("tools/list"),
+            params: Some(json!({"cursor": "optional-cursor-value"})),
+        };
+
+        let stdin_arc_copy = stdin_arc.clone();
+        tokio::task::spawn(async move {
+            sleep(Duration::from_secs(6)).await;
+
+            let _ = stdin_arc_copy
+                .lock()
+                .await
+                .write_all(
+                    (serde_json::to_string(&tools_listing_request).unwrap() + "\n").as_bytes(),
+                )
+                .await;
+
+            dbg!("tools listing!!")
         });
 
         let stdin_arc_copy = stdin_arc.clone();
@@ -149,6 +330,8 @@ mod tests {
                                             let initialized_notification_string = serde_json::to_string(&initialized_notification).unwrap();
 
                                             let _ = stdin_arc_copy.lock().await.write_all((initialized_notification_string + "\n").as_bytes()).await;
+
+                                            dbg!("notified!!");
                                         }
                                     }
                                     _ => {}

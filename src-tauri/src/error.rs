@@ -6,6 +6,9 @@ pub enum NexaError {
     Io(#[from] std::io::Error),
     #[error("Reqwest Error: {0}")]
     Reqwest(#[from] tauri_plugin_http::reqwest::Error),
+    #[error("Serde Json Error: {0}")]
+    SerdeJson(#[from] serde_json::Error),
+
     #[error("Gemini Error: {0}")]
     Gemini(String),
     #[error("MCP Connection Error: {0}")]
