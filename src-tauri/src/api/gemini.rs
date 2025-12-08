@@ -2,7 +2,7 @@ use crate::error::NexaError;
 use futures::stream::{self, StreamExt};
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
-use serde_json::{self, Value};
+use serde_json::{self, json, Value};
 use std::collections::HashMap;
 use std::str::from_utf8;
 use tauri_plugin_http::reqwest;
@@ -24,7 +24,7 @@ pub struct GeminiPart {
     pub metadata: Option<GeminiPartMetadata>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub part_metadata: Option<HashMap<String, Value>>,
+    pub part_metadata: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -51,7 +51,7 @@ pub enum GeminiPartData {
         id: Option<String>,
         name: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        args: Option<HashMap<String, Value>>,
+        args: Option<Value>,
     },
 
     #[serde(rename_all = "camelCase")]
@@ -59,7 +59,7 @@ pub enum GeminiPartData {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         name: String,
-        response: HashMap<String, Value>,
+        response: Value,
         #[serde(skip_serializing_if = "Option::is_none")]
         parts: Option<Vec<FunctionResponsePart>>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -149,12 +149,7 @@ pub struct GeminiGenerateContentResponse {
     pub candidates: Vec<Candidate>,
 
     #[serde(flatten)]
-    pub extra_fields: HashMap<String, Value>,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct GeminiStreamGenerateContentResponse {
-    pub data: GeminiGenerateContentResponse,
+    pub extra_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -162,7 +157,7 @@ pub struct Candidate {
     pub content: Content,
 
     #[serde(flatten)]
-    pub extra_fields: HashMap<String, Value>,
+    pub extra_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -175,7 +170,7 @@ pub struct GeminiGenerateContentRequest {
     tool_config: Option<ToolConfig>,
 
     #[serde(flatten)]
-    extra_fields: HashMap<String, Value>,
+    extra_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -187,23 +182,23 @@ pub struct Content {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct Tool {
+pub(crate) struct Tool {
     #[serde(skip_serializing_if = "Option::is_none")]
-    function_declarations: Option<Vec<FunctionDeclaration>>,
+    pub(crate) function_declarations: Option<Vec<FunctionDeclaration>>,
 
     #[serde(flatten)]
-    extra_fields: HashMap<String, Value>,
+    pub(crate) extra_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct FunctionDeclaration {
-    name: String,
-    description: String,
+pub(crate) struct FunctionDeclaration {
+    pub(crate) name: String,
+    pub(crate) description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    parameters: Option<Schema>,
+    pub(crate) parameters: Option<Value>,
 
     #[serde(flatten)]
-    extra_fields: HashMap<String, Value>,
+    pub(crate) extra_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -212,7 +207,7 @@ pub struct Schema {
     data_type: Type,
 
     #[serde(flatten)]
-    type_specified_fields: HashMap<String, Value>,
+    type_specified_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -242,7 +237,7 @@ pub struct ToolConfig {
     function_calling_config: Option<FunctionCallingConfig>,
 
     #[serde(flatten)]
-    extra_fields: HashMap<String, Value>,
+    extra_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -283,7 +278,7 @@ pub async fn gemini_chat(
             _ => Some(tools),
         },
         tool_config: tool_config,
-        extra_fields: HashMap::default(),
+        extra_fields: json!({}),
     };
 
     let response = client
@@ -316,9 +311,14 @@ pub async fn gemini_chat(
                         return None;
                     }
 
-                    let res: GeminiGenerateContentResponse =
-                        serde_json::from_str(trimed_msg).unwrap();
-                    Some((Ok(res), stream))
+                    let res = serde_json::from_str::<GeminiGenerateContentResponse>(trimed_msg);
+                    match res {
+                        Ok(response) => Some((Ok(response), stream)),
+                        Err(e) => {
+                            dbg!(trimed_msg);
+                            Some((Err(NexaError::SerdeJson(e)), stream))
+                        }
+                    }
                 }
                 Err(e) => Some((Err(NexaError::Reqwest(e)), stream)),
             };
@@ -331,7 +331,9 @@ pub async fn gemini_chat(
 
 #[cfg(test)]
 mod tests {
-    use super::*; // Import your structs from the parent module
+    use super::*;
+    use futures::pin_mut;
+    // Import your structs from the parent module
     use serde_json::json; // Use the json! macro for easy Value creation
     use std::env;
 
@@ -344,75 +346,38 @@ mod tests {
             parts: vec![GeminiPart {
                 thought: None,
                 thought_signature: None,
-                data: GeminiPartData::Text("What is the weather now in Boston?".to_string()),
+                data: GeminiPartData::Text("Schedule a meeting with Bob and Alice for 03/27/2025 at 10:00 AM about the Q3 planning.".to_string()),
                 metadata: None,
                 part_metadata: None,
             }],
             role: Some("user".to_string()),
         }];
 
-        let schedule_meeting_properties = HashMap::from([
-            (
-                "attendees".to_string(),
-                Schema {
-                    data_type: Type::Array,
-                    type_specified_fields: HashMap::from([
-                        (
-                            "items".to_string(),
-                            json!(Schema {
-                                data_type: Type::String,
-                                type_specified_fields: HashMap::default()
-                            }),
-                        ),
-                        (
-                            "description".to_string(),
-                            json!("List of people attending the meeting."),
-                        ),
-                    ]),
+        let schedule_meeting_properties = json!({
+            "type": "object",
+            "required": ["attendees", "date", "time", "topic"],
+            "properties": {
+                "attendees": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "List of people attending the meeting."
                 },
-            ),
-            (
-                "date".to_string(),
-                Schema {
-                    data_type: Type::String,
-                    type_specified_fields: HashMap::from([(
-                        "description".to_string(),
-                        json!("Date of the meeting (e.g., '2024-07-29')"),
-                    )]),
+                "date": {
+                    "type": "string",
+                    "description": "Date of the meeting (e.g., '2024-07-29')"
                 },
-            ),
-            (
-                "time".to_string(),
-                Schema {
-                    data_type: Type::String,
-                    type_specified_fields: HashMap::from([(
-                        "description".to_string(),
-                        json!("Time of the meeting (e.g., '15:00')"),
-                    )]),
+                "time": {
+                    "type": "string",
+                    "description": "Time of the meeting (e.g., '15:00')"
                 },
-            ),
-            (
-                "topic".to_string(),
-                Schema {
-                    data_type: Type::String,
-                    type_specified_fields: HashMap::from([(
-                        "description".to_string(),
-                        json!("The subject or topic of the meeting."),
-                    )]),
-                },
-            ),
-        ]);
-
-        let get_weather_properties = HashMap::from([(
-            "location".to_string(),
-            Schema {
-                data_type: Type::String,
-                type_specified_fields: HashMap::from([(
-                    "description".to_string(),
-                    json!("The location for the current weather report."),
-                )]),
-            },
-        )]);
+                "topic": {
+                    "type": "string",
+                    "description": "The subject or topic of the meeting."
+                }
+            }
+        });
 
         let tools = vec![Tool {
             function_declarations: Some(vec![
@@ -421,47 +386,51 @@ mod tests {
                     description:
                         "Schedules a meeting with specified attendees at a given time and date."
                             .to_string(),
-                    parameters: Some(Schema {
-                        data_type: Type::Object,
-                        type_specified_fields: HashMap::from([
-                            ("properties".to_string(), json!(schedule_meeting_properties)),
-                            (
-                                "required".to_string(),
-                                json!([
-                                    "attendees".to_string(),
-                                    "date".to_string(),
-                                    "time".to_string(),
-                                    "topic".to_string()
-                                ]),
-                            ),
-                        ]),
-                    }),
-                    extra_fields: HashMap::default(),
+                    parameters: Some(schedule_meeting_properties),
+                    extra_fields: json!({}),
                 },
                 FunctionDeclaration {
                     name: "get_weather".to_string(),
                     description: "Get a current weather report for a given location.".to_string(),
-                    parameters: Some(Schema {
-                        data_type: Type::Object,
-                        type_specified_fields: HashMap::from([
-                            ("properties".to_string(), json!(get_weather_properties)),
-                            ("required".to_string(), json!(["location".to_string()])),
-                        ]),
-                    }),
-                    extra_fields: HashMap::default(),
+                    parameters: Some(json!({
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "The location for the current weather report."
+                            }
+                        },
+                        "required": ["location"]
+                    })),
+                    extra_fields: json!({}),
                 },
             ]),
-            extra_fields: HashMap::default(),
+            extra_fields: json!({}),
         }];
 
-        let _ = gemini_chat(
+        let stream = gemini_chat(
             chat_history,
             tools,
             "gemini-2.5-pro".to_string(),
             env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set for this test."),
             None,
         )
-        .await;
+        .await
+        .unwrap();
+
+        pin_mut!(stream);
+
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                Ok(response) => {
+                    dbg!(response);
+                }
+                Err(e) => {
+                    dbg!("Error!!!!");
+                    dbg!(e);
+                }
+            }
+        }
     }
 
     #[test]
@@ -496,29 +465,22 @@ mod tests {
             fake_signature
         );
 
-        // 2. Define the equivalent "ground truth" Rust struct
-        let expected_args = HashMap::from([
-            ("topic".to_string(), json!("Q3 planning")),
-            ("date".to_string(), json!("2025-03-27")),
-            ("time".to_string(), json!("10:00")),
-            (
-                "attendees".to_string(),
-                json!(vec!["Bob".to_string(), "Alice".to_string()]),
-            ),
-        ]);
-
         let expected_part = GeminiPart {
             thought: None,
             thought_signature: Some(fake_signature.to_string()),
             data: GeminiPartData::FunctionCall {
                 id: Some("jazzcort1993".to_string()),
                 name: "schedule_meeting".to_string(),
-                args: Some(expected_args),
+                args: Some(json!({
+                    "topic": "Q3 planning",
+                    "date": "2025-03-27",
+                    "time": "10:00",
+                    "attendees": ["Bob", "Alice"]
+                })),
             },
             metadata: None,
             part_metadata: None,
         };
-        // NOTE: You MUST copy the full, long thoughtSignature string into the line above.
 
         // --- TEST 1: DESERIALIZATION (JSON -> RUST) ---
 
@@ -570,11 +532,11 @@ mod tests {
         let deserialized_part: GeminiPartData =
             serde_json::from_str(json_data).expect("Failed to deserialize JSON");
 
-        let expected_response = HashMap::from([
-            ("location".to_string(), json!("Boston")),
-            ("temperature".to_string(), json!("40")),
-            ("weather".to_string(), json!("sunny")),
-        ]);
+        let expected_response = json!({
+            "location": "Boston",
+            "temperature": "40",
+            "weather": "sunny"
+        });
 
         let expected_part = GeminiPartData::FunctionResponse {
             id: Some("12345".to_string()),
@@ -615,11 +577,11 @@ mod tests {
         let deserialized_part: GeminiPartData =
             serde_json::from_str(json_data).expect("Failed to deserialize JSON");
 
-        let expected_response = HashMap::from([
-            ("location".to_string(), json!("Boston")),
-            ("temperature".to_string(), json!("40")),
-            ("weather".to_string(), json!("sunny")),
-        ]);
+        let expected_response = json!({
+            "location": "Boston",
+            "temperature": "40",
+            "weather": "sunny"
+        });
 
         let expected_part = GeminiPartData::FunctionResponse {
             id: None,

@@ -1,4 +1,5 @@
-mod client;
-mod connection;
-mod manager;
-mod structs;
+pub mod client;
+pub mod commands;
+pub mod connection;
+pub mod manager;
+pub mod structs;

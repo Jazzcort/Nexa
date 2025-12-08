@@ -1,53 +1,96 @@
-use crate::llm::base::{ChatHistory, ChatMessage, EmittedChatMessage, Provider, LLM};
+use crate::api::gemini::{FunctionDeclaration, Tool};
+use crate::error::NexaError;
+use crate::llm::base::{
+    ChatHistory, ChatMessage, ChatMessageContent, EmittedChatMessage, Provider, LLM,
+};
 use crate::llm::constants::GEMINI_KETRING_KEY;
 use crate::llm::gemini::Gemini;
 use crate::llm::ollama::{
-    OllamaChatRequest, OllamaChatResponse, OllamaModelInfo, OllamaModelTag, OllamaTagsResponse,
+    OllamaChatMessage, OllamaChatRequest, OllamaChatResponse, OllamaModelInfo, OllamaModelTag,
+    OllamaTagsResponse,
 };
+use crate::AppData;
 use futures::pin_mut;
 use futures_util::StreamExt;
 use keyring::Entry;
 use serde_json::json;
+use std::collections::HashMap;
 use std::str::from_utf8;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_http::reqwest;
 
 #[tauri::command]
-pub async fn stream_chat(app: AppHandle, history: ChatHistory, model: String, provider: Provider) {
+pub async fn stream_chat(
+    app: AppHandle,
+    state: State<'_, AppData>,
+    history: ChatHistory,
+    model: String,
+    provider: Provider,
+) -> Result<(), NexaError> {
     let client = reqwest::Client::new();
 
     dbg!(&history);
 
     if history.messages.len() == 0 {
-        return;
+        return Err(NexaError::Command(String::from(
+            "Stream chat command without chat history",
+        )));
     }
 
     let user_input = history.messages.last();
     if user_input.is_none() {
-        return;
+        return Err(NexaError::Command(String::from(
+            "Stream chat command without user input",
+        )));
     }
 
     match provider {
         Provider::Gemini => {
             let product_name = app.config().product_name.clone();
             if product_name.is_none() {
-                return;
+                return Err(NexaError::Command(String::from("Product name is none")));
             }
 
+            // Need to move this to setup maybe
             let product_name = product_name.unwrap();
             let entry = Entry::new(&product_name, GEMINI_KETRING_KEY).expect("Keyring Error");
             let api_key = entry.get_password().expect("Keychain Error");
 
+            let mcp_clients = state.mcp_clients.read().await;
+            let mut tools: Vec<Tool> = vec![];
+
+            for (name, mcp_client) in mcp_clients.iter() {
+                let tool_list = mcp_client.get_tool_list().await;
+                let function_decorations: Vec<FunctionDeclaration> = tool_list
+                    .iter()
+                    .map(|(name, tool)| FunctionDeclaration {
+                        name: name.clone(),
+                        description: tool.description.clone().unwrap_or_default(),
+                        parameters: Some(serde_json::to_value(&tool.input_schema).unwrap()),
+                        extra_fields: json!({}),
+                    })
+                    .collect();
+
+                tools.push(Tool {
+                    function_declarations: Some(function_decorations),
+
+                    extra_fields: json!({}),
+                });
+            }
+
             let gemini = Gemini {
                 model_id: model,
-                tools: vec![],
+                tools: tools,
                 api_key: api_key,
                 tool_config: None,
             };
 
             let stream = gemini.stream_chat(history).await;
             if stream.is_err() {
-                return;
+                return Err(NexaError::Gemini(String::from(format!(
+                    "Stream chat error: {}",
+                    stream.err().unwrap()
+                ))));
             }
 
             let stream = stream.unwrap();
@@ -63,19 +106,27 @@ pub async fn stream_chat(app: AppHandle, history: ChatHistory, model: String, pr
                     }
                 }
             }
+
+            Ok(())
         }
         Provider::Ollama => {
             // Ollama section
             let id = user_input.unwrap().id.clone();
-            let messages_without_id: Vec<ChatMessage> = history
-                .messages
-                .into_iter()
-                .map(|msg| msg.strip_id())
-                .collect();
+            let mut messages: Vec<OllamaChatMessage> = vec![];
+
+            for msg in history.messages.into_iter() {
+                if let ChatMessageContent::Text(text) = msg.content {
+                    messages.push(OllamaChatMessage {
+                        role: msg.role,
+                        content: text,
+                        images: msg.images,
+                    });
+                }
+            }
 
             let req = OllamaChatRequest {
                 model,
-                messages: messages_without_id,
+                messages: messages,
             };
             let res = client
                 .post("http://localhost:11434/api/chat")
@@ -94,7 +145,11 @@ pub async fn stream_chat(app: AppHandle, history: ChatHistory, model: String, pr
                             serde_json::from_str(msg).unwrap();
                         let emitted_message = EmittedChatMessage {
                             id: id.clone(),
-                            message: stream_response.message,
+                            message: vec![ChatMessage {
+                                role: stream_response.message.role,
+                                images: stream_response.message.images,
+                                content: ChatMessageContent::Text(stream_response.message.content),
+                            }],
                             done: stream_response.done,
                         };
                         _ = app.emit("stream_chat", emitted_message);
@@ -105,6 +160,8 @@ pub async fn stream_chat(app: AppHandle, history: ChatHistory, model: String, pr
                     }
                 }
             }
+
+            Ok(())
 
             // dbg!(res);
         }

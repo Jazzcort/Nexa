@@ -4,7 +4,10 @@ use crate::{
         connection::{
             self, mcp_stdio_connect, MCPStdioConnection, MCPTransportReader, MCPTransportWriter,
         },
-        structs::{Id, MCPDataPacket, MCPNotification, MCPRequest, MCPResponse, JSON_RPC},
+        structs::{
+            Id, ListToolsResult, MCPDataPacket, MCPNotification, MCPRequest, MCPResponse, Tool,
+            JSON_RPC,
+        },
     },
 };
 use futures::lock::Mutex;
@@ -61,11 +64,11 @@ pub(crate) struct ClientCapabilities {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub(crate) struct Implementation {
-    name: String,
-    version: String,
+    pub(crate) name: String,
+    pub(crate) version: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
+    pub(crate) title: Option<String>,
 }
 
 #[derive(Serialize, Clone, PartialEq, Debug)]
@@ -91,26 +94,26 @@ impl Default for ClientConfiguration {
 
 #[derive(Deserialize, Clone, PartialEq, Debug, Default)]
 pub(crate) struct ServerCapabilities {
-    completions: Option<Value>,
-    experimental: Option<Value>,
-    logging: Option<Value>,
-    prompts: Option<SimpleCapability>,
-    resources: Option<ResourcesCapability>,
-    tools: Option<SimpleCapability>,
+    pub(crate) completions: Option<Value>,
+    pub(crate) experimental: Option<Value>,
+    pub(crate) logging: Option<Value>,
+    pub(crate) prompts: Option<SimpleCapability>,
+    pub(crate) resources: Option<ResourcesCapability>,
+    pub(crate) tools: Option<SimpleCapability>,
 }
 
 #[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ServerConfiguration {
     #[serde(rename = "_meta")]
-    _meta: Option<Value>,
-    capabilities: ServerCapabilities,
-    instructions: Option<String>,
-    protocol_version: String,
-    server_info: Implementation,
+    pub(crate) _meta: Option<Value>,
+    pub(crate) capabilities: ServerCapabilities,
+    pub(crate) instructions: Option<String>,
+    pub(crate) protocol_version: String,
+    pub(crate) server_info: Implementation,
 
     #[serde(flatten)]
-    extra_fields: Value,
+    pub(crate) extra_fields: Value,
 }
 impl Default for ServerConfiguration {
     fn default() -> Self {
@@ -144,14 +147,15 @@ pub(crate) enum Transport {
 
 pub(crate) struct MCPClient {
     configuration: ClientConfiguration,
-    transport_output: Option<Box<dyn MCPTransportReader>>,
+    transport_output: Mutex<Option<Box<dyn MCPTransportReader>>>,
     transport_input: Box<dyn MCPTransportWriter>,
     transport_type: Transport,
+    tool_list: RwLock<HashMap<String, Tool>>,
     tool_calls_map: Arc<Mutex<HashMap<Id, oneshot::Sender<MCPResponse>>>>,
     request_id: Mutex<u64>,
-    status: MCPStatus,
+    status: RwLock<MCPStatus>,
 
-    server_config: ServerConfiguration,
+    server_config: RwLock<ServerConfiguration>,
     cancel_token: CancellationToken,
 }
 
@@ -165,17 +169,33 @@ impl MCPClient {
 
         Ok(MCPClient {
             configuration: ClientConfiguration::default(),
-            status: MCPStatus::Connecting,
-            transport_output: Some(Box::new(stdio_reader)),
+            status: RwLock::new(MCPStatus::Connecting),
+            transport_output: Mutex::new(Some(Box::new(stdio_reader))),
             transport_input: Box::new(stdio_writer),
             transport_type: Transport::Stdio,
             request_id: Mutex::new(1),
 
+            tool_list: RwLock::new(HashMap::new()),
             tool_calls_map: Arc::new(Mutex::new(HashMap::new())),
 
-            server_config: ServerConfiguration::default(),
+            server_config: RwLock::new(ServerConfiguration::default()),
+            // Cancel token for listening async task
             cancel_token: CancellationToken::new(),
         })
+    }
+
+    pub async fn get_server_config(&self) -> ServerConfiguration {
+        return self.server_config.read().await.clone();
+    }
+
+    pub async fn get_tool_list(&self) -> Vec<(String, Tool)> {
+        return self
+            .tool_list
+            .read()
+            .await
+            .iter()
+            .map(|(k, v)| return (k.clone(), v.clone()))
+            .collect();
     }
 
     async fn get_request_id(&self) -> u64 {
@@ -185,7 +205,7 @@ impl MCPClient {
         id
     }
 
-    async fn initialize(&mut self) -> Result<(), NexaError> {
+    async fn initialize(&self) -> Result<(), NexaError> {
         match &self.transport_type {
             Transport::Stdio => {
                 let default_client_config = self.configuration.clone();
@@ -202,8 +222,11 @@ impl MCPClient {
                 self.transport_input
                     .send(serde_json::to_value(initialize_request)?)
                     .await?;
+
                 let response = self
                     .transport_output
+                    .lock()
+                    .await
                     .as_mut()
                     .ok_or(NexaError::MCPConnection(String::from("Missing Stdout")))?
                     .receive()
@@ -228,10 +251,15 @@ impl MCPClient {
                                 )));
                             }
 
-                            let server_config: ServerConfiguration =
+                            // Update Server Configuration
+                            let server_config_received: ServerConfiguration =
                                 serde_json::from_value(result)?;
-                            self.server_config = server_config;
-                            self.status = MCPStatus::Connected;
+                            let mut server_config_handle = self.server_config.write().await;
+                            *server_config_handle = server_config_received;
+
+                            // Update Status
+                            let mut status_handle = self.status.write().await;
+                            *status_handle = MCPStatus::Connected;
 
                             let initialized_notification = MCPNotification {
                                 jsonrpc: JSON_RPC.to_string(),
@@ -262,7 +290,7 @@ impl MCPClient {
         }
     }
 
-    async fn list_tools(&mut self) -> Result<(), NexaError> {
+    async fn list_tools(&self) -> Result<(), NexaError> {
         match &self.transport_type {
             Transport::Stdio => {
                 let tools_list_request = MCPRequest {
@@ -279,6 +307,8 @@ impl MCPClient {
 
                 let response = self
                     .transport_output
+                    .lock()
+                    .await
                     .as_mut()
                     .ok_or(NexaError::MCPConnection(String::from("Missing Stdout")))?
                     .receive()
@@ -290,7 +320,15 @@ impl MCPClient {
                             jsonrpc,
                             id,
                             result,
-                        } => return Ok(()),
+                        } => {
+                            let tools_list_result: ListToolsResult =
+                                serde_json::from_value(result)?;
+                            let mut tool_list_handle = self.tool_list.write().await;
+                            for tool in tools_list_result.tools.iter() {
+                                tool_list_handle.insert(tool.name.clone(), tool.clone());
+                            }
+                            return Ok(());
+                        }
                         MCPResponse::Fail { jsonrpc, id, error } => {
                             return Err(NexaError::MCPConnection(String::from(format!(
                                 "Tools List Failed: {}",
@@ -308,11 +346,14 @@ impl MCPClient {
         }
     }
 
-    pub async fn start_listening(&mut self) -> Result<(), NexaError> {
+    pub async fn start_listening(&self) -> Result<(), NexaError> {
         self.initialize().await?;
+        self.list_tools().await?;
 
         let mut stdout_handle = self
             .transport_output
+            .lock()
+            .await
             .take()
             .ok_or(NexaError::MCPConnection(String::from("Missing Stdout")))?;
         let cancel_token = self.cancel_token.clone();
@@ -321,7 +362,10 @@ impl MCPClient {
         task::spawn(async move {
             loop {
                 select! {
-                    res = cancel_token.cancelled() => {break},
+                    res = cancel_token.cancelled() => {
+                        dbg!("Canceled!!");
+                        break;
+                    },
                     result = stdout_handle.receive() => {
                         match result {
                             Ok(data_packet) => {
@@ -331,6 +375,7 @@ impl MCPClient {
 
                                         match &response {
                                             MCPResponse::Success{jsonrpc, id, result} => {
+                                                dbg!(&id);
                                                 if let Some(response_pipe) = map.remove(id) {
                                                     let _ = response_pipe.send(response);
                                                 }
@@ -358,11 +403,62 @@ impl MCPClient {
         Ok(())
     }
 
-    // pub async fn call_tool()
+    pub async fn call_tool(
+        &self,
+        name: impl Into<String>,
+        arguments: Value,
+    ) -> Result<oneshot::Receiver<MCPResponse>, NexaError> {
+        if !arguments.is_object() {
+            return Err(NexaError::MCPToolCall(String::from(
+                "Arguments should be an object",
+            )));
+        }
+
+        let id = Id::NumberId(self.get_request_id().await);
+        let (tx, tr) = oneshot::channel::<MCPResponse>();
+
+        let mut tool_calls_map_handle = self.tool_calls_map.lock().await;
+        tool_calls_map_handle.insert(id.clone(), tx);
+
+        let name: String = name.into();
+        let call_tool_request = MCPRequest {
+            jsonrpc: JSON_RPC.to_string(),
+            id: id.clone(),
+            method: String::from("tools/call"),
+            params: Some(match arguments.as_object().unwrap().is_empty() {
+                true => {
+                    json!({
+                        "name": name,
+                    })
+                }
+                false => {
+                    json!({
+                        "name": name,
+                        "arguments": arguments
+                    })
+                }
+            }),
+        };
+
+        self.transport_input
+            .send(serde_json::to_value(call_tool_request)?)
+            .await?;
+
+        Ok(tr)
+    }
+}
+
+impl Drop for MCPClient {
+    fn drop(&mut self) {
+        self.cancel_token.cancel();
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+    use tokio::time::{sleep, Duration};
+
     use super::*;
 
     #[tokio::test]
@@ -379,11 +475,114 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(client.status, MCPStatus::Connecting);
+        assert_eq!(*client.status.read().await, MCPStatus::Connecting);
 
-        let _ = client.initialize().await;
+        let _ = client.start_listening().await;
 
-        assert_eq!(client.status, MCPStatus::Connected);
+        assert_eq!(*client.status.read().await, MCPStatus::Connected);
+
         dbg!(&client.server_config);
+        dbg!(&client.tool_list);
+
+        let output_channel_1 = client
+            .call_tool(
+                "get_github_summary",
+                json!({
+                    "after": "2025-11-15",
+                    "before": "2025-12-04",
+                    "github_username": "Jazzcort"
+                }),
+            )
+            .await
+            .unwrap();
+
+        let output_channel_2 = client
+            .call_tool(
+                "get_github_summary",
+                json!({
+                    "after": "2025-11-15",
+                    "before": "2025-12-04",
+                    "github_username": "Jazzcort"
+                }),
+            )
+            .await
+            .unwrap();
+
+        let output_channel_3 = client
+            .call_tool(
+                "get_github_summary",
+                json!({
+                    "after": "2025-11-15",
+                    "before": "2025-12-04",
+                    "github_username": "Jazzcort"
+                }),
+            )
+            .await
+            .unwrap();
+        let output_channel_4 = client
+            .call_tool(
+                "get_github_summary",
+                json!({
+                    "after": "2025-11-15",
+                    "before": "2025-12-04",
+                    "github_username": "Jazzcort"
+                }),
+            )
+            .await
+            .unwrap();
+        let output_channel_5 = client
+            .call_tool(
+                "create_draft_email",
+                json!({
+                    "content": "testing",
+                    "subject": "MCP client testing",
+                    "to": ["jason101011113@gmail.com"]
+                }),
+            )
+            .await
+            .unwrap();
+        let output_channel_6 = client
+            .call_tool("get_root_directory", json!({}))
+            .await
+            .unwrap();
+        let output_channel_7 = client
+            .call_tool("get_root_directory", json!({}))
+            .await
+            .unwrap();
+
+        let start = Instant::now();
+
+        let res = tokio::join!(
+            output_channel_1,
+            output_channel_2,
+            output_channel_3,
+            output_channel_4,
+            output_channel_5,
+            output_channel_6,
+            output_channel_7
+        );
+
+        dbg!(start.elapsed());
+        dbg!(res);
+
+        // let a = select! {
+        //     _ = sleep(Duration::from_secs(10)) => {
+        //         dbg!("timeout!");
+        //     }
+        //     res = output_channel => {
+        //         match res {
+        //             Ok(tool_call_res) => {
+        //                 dbg!(tool_call_res);
+        //             }
+        //             Err(e) => {
+        //                 dbg!(e);
+        //             }
+        //         }
+        //     }
+        // }
+
+        drop(client);
+
+        sleep(Duration::from_secs(5)).await;
     }
 }

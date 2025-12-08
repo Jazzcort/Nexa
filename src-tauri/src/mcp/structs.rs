@@ -99,9 +99,11 @@ pub(crate) struct ToolAnnotations {
     title: Option<String>,
 }
 
-#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Debug)]
 pub(crate) struct FunctionSchema {
+    #[serde(skip_serializing_if = "Option::is_none")]
     properties: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     required: Option<Vec<String>>,
     #[serde(rename = "type")]
     data_type: String,
@@ -111,25 +113,25 @@ pub(crate) struct FunctionSchema {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Tool {
     #[serde(rename = "_meta")]
-    _meta: Option<Value>,
-    annotations: Option<ToolAnnotations>,
-    description: Option<String>,
-    input_schema: FunctionSchema,
-    name: String,
-    output_schema: Option<FunctionSchema>,
-    title: Option<String>,
+    pub(crate) _meta: Option<Value>,
+    pub(crate) annotations: Option<ToolAnnotations>,
+    pub(crate) description: Option<String>,
+    pub(crate) input_schema: FunctionSchema,
+    pub(crate) name: String,
+    pub(crate) output_schema: Option<FunctionSchema>,
+    pub(crate) title: Option<String>,
 }
 
 #[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ListToolsResult {
     #[serde(rename = "_meta")]
-    _meta: Option<Value>,
-    next_cursor: Option<String>,
-    tools: Vec<Tool>,
+    pub(crate) _meta: Option<Value>,
+    pub(crate) next_cursor: Option<String>,
+    pub(crate) tools: Vec<Tool>,
 
     #[serde(flatten)]
-    extra_fields: Value,
+    pub(crate) extra_fields: Value,
 }
 
 #[cfg(test)]

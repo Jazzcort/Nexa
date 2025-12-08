@@ -1,6 +1,7 @@
 use crate::error::NexaError;
 use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -32,15 +33,35 @@ pub enum Role {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
     pub role: Role,
-    pub content: String,
+    pub content: ChatMessageContent,
     pub images: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type", content = "content")]
+#[serde(rename_all = "camelCase")]
+pub enum ChatMessageContent {
+    Text(String),
+    FunctionCallRequest {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        args: Option<Value>,
+    },
+    FunctionCallResponse {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        name: String,
+        response: Value,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ChatMessageWithId {
     pub id: String,
     pub role: Role,
-    pub content: String,
+    pub content: ChatMessageContent,
     pub images: Option<String>,
 }
 
@@ -57,6 +78,6 @@ impl ChatMessageWithId {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct EmittedChatMessage {
     pub id: String,
-    pub message: ChatMessage,
+    pub message: Vec<ChatMessage>,
     pub done: bool,
 }

@@ -1,7 +1,9 @@
 use crate::api::gemini::gemini_chat;
 use crate::api::gemini::{Content, GeminiPart, GeminiPartData, Tool, ToolConfig};
 use crate::error::NexaError;
-use crate::llm::base::{ChatHistory, ChatMessage, EmittedChatMessage, Role, LLM};
+use crate::llm::base::{
+    ChatHistory, ChatMessage, ChatMessageContent, EmittedChatMessage, Role, LLM,
+};
 use futures::stream;
 use futures::StreamExt;
 use futures_util::Stream;
@@ -26,16 +28,52 @@ impl LLM for Gemini {
 
         let contents: Vec<Content> = history
             .messages
-            .iter()
-            .map(|message| Content {
-                parts: vec![GeminiPart {
-                    thought: None,
-                    thought_signature: None,
-                    metadata: None,
-                    part_metadata: None,
-                    data: GeminiPartData::Text(message.content.clone()),
-                }],
-                role: Some(get_gemini_role(message.role.clone())),
+            .into_iter()
+            .map(|message| {
+                let mut content = Content {
+                    parts: vec![],
+                    role: Some(get_gemini_role(message.role.clone())),
+                };
+
+                match message.content {
+                    ChatMessageContent::Text(msg) => {
+                        content.parts.push(GeminiPart {
+                            thought: None,
+                            thought_signature: None,
+                            data: GeminiPartData::Text(msg),
+                            metadata: None,
+                            part_metadata: None,
+                        });
+                        content
+                    }
+                    ChatMessageContent::FunctionCallRequest { id, name, args } => {
+                        content.parts.push(GeminiPart {
+                            thought: None,
+                            thought_signature: None,
+                            data: GeminiPartData::FunctionCall { id, name, args },
+                            metadata: None,
+                            part_metadata: None,
+                        });
+                        content
+                    }
+                    ChatMessageContent::FunctionCallResponse { id, name, response } => {
+                        content.parts.push(GeminiPart {
+                            thought: None,
+                            thought_signature: None,
+                            data: GeminiPartData::FunctionResponse {
+                                id,
+                                name,
+                                response,
+                                parts: None,
+                                will_continue: None,
+                                scheduling: None,
+                            },
+                            metadata: None,
+                            part_metadata: None,
+                        });
+                        content
+                    }
+                }
             })
             .collect();
 
@@ -56,11 +94,7 @@ impl LLM for Gemini {
             |(mut stream, mut should_terminate_stream, id)| async move {
                 let mut yielded_item = EmittedChatMessage {
                     id: id.clone(),
-                    message: ChatMessage {
-                        role: Role::Assistant,
-                        content: String::new(),
-                        images: None,
-                    },
+                    message: vec![],
                     done: false,
                 };
 
@@ -86,12 +120,27 @@ impl LLM for Gemini {
                             let mut text_output = String::new();
                             for part in first_candidate.content.parts {
                                 match part.data {
-                                    GeminiPartData::Text(msg) => text_output += &msg,
+                                    GeminiPartData::Text(msg) => {
+                                        yielded_item.message.push(ChatMessage {
+                                            role: Role::Assistant,
+                                            content: ChatMessageContent::Text(msg),
+                                            images: None,
+                                        })
+                                    }
+                                    GeminiPartData::FunctionCall { id, name, args } => {
+                                        yielded_item.message.push(ChatMessage {
+                                            role: Role::Assistant,
+                                            content: ChatMessageContent::FunctionCallRequest {
+                                                id: id,
+                                                name,
+                                                args,
+                                            },
+                                            images: None,
+                                        })
+                                    }
                                     _ => {}
                                 }
                             }
-
-                            yielded_item.message.content = text_output;
 
                             Some((Ok(yielded_item), (stream, should_terminate_stream, id)))
                         }
