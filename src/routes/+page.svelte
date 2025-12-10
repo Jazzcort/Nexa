@@ -3,6 +3,11 @@
     EmittedChatMessage,
     ChatMessageWithId,
     ChatMessage,
+    FunctionCallRequest,
+    AwaitingFunctionCall,
+    EmittedMCPResponse,
+    Text,
+    UserChatMessage,
   } from "$types";
   import { onDestroy, onMount, tick } from "svelte";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -18,6 +23,8 @@
   import { Spinner } from "$lib/components/ui/spinner/index.js";
   import { goto } from "$app/navigation";
   import { chatHistoryStore } from "$lib/stores/chat-history.svelte";
+  import FunctionCallCell from "$components/FunctionCallCell.svelte";
+  import SpinnerBadge from "$components/SpinnerBadge.svelte";
   //
   let scrollTop = $state(0);
   let scrollDown: HTMLElement | null;
@@ -28,10 +35,11 @@
   let isNearBottom = $state(true);
   let didLoadChatHistory = $state(false);
   const SCROLL_THRESHOLD = 100;
-  let userMessage: ChatMessage = $state({
-    role: "user",
-    content: "",
-  });
+  let userMessage: string = $state("");
+
+  let awaitingFunctionCalls: Map<string, AwaitingFunctionCall> = $state(
+    new Map(),
+  );
 
   let chatHistory: ChatMessageWithId[] = $state([]);
   let currentInputBoxIndex = $state(0);
@@ -70,7 +78,7 @@
       "modified content in trigger stream chat!!!",
     );
 
-    if (index < 0 || index > chatHistoryStore.chatHistory.length || streaming) {
+    if (index < 0 || index > chatHistory.length || streaming) {
       return;
     }
 
@@ -79,7 +87,12 @@
     chatHistory.push({
       id: uuidv4(),
       role: "assistant",
-      content: "",
+      content: {
+        type: "text",
+        content: {
+          text: "",
+        },
+      },
       done: false,
     });
 
@@ -104,34 +117,109 @@
     scrollToBottom();
     setTimeout(() => {
       if (currentInputBoxIndex === chatHistory.length) {
-        userMessage.content = "";
+        userMessage = "";
       }
       userInputBox?.focus();
     }, 80);
   };
 
   const normalUserInput = () => {
-    if (
-      chatHistory.length !== currentInputBoxIndex ||
-      !userMessage.content.trim()
-    ) {
+    if (chatHistory.length !== currentInputBoxIndex || !userMessage.trim()) {
       return;
     }
 
     chatHistory.push({
-      ...userMessage,
+      role: "user",
+      content: {
+        type: "text",
+        content: {
+          text: userMessage,
+        },
+      },
       id: uuidv4(),
       done: true,
     });
     chatHistory.push({
       id: uuidv4(),
       role: "assistant",
-      content: "",
+      content: {
+        type: "text",
+        content: {
+          text: "",
+        },
+      },
       done: false,
     });
 
     handleInputBoxSelection(chatHistory.length);
     streamChat();
+  };
+
+  const injectFunctionCalls = () => {
+    const finalIndexOfAssistantTextMessage = chatHistory.findLastIndex(
+      (msg) => {
+        return msg.role === "assistant" && msg.content.type === "text";
+      },
+    );
+
+    if (finalIndexOfAssistantTextMessage > 0) {
+      let emptyResponse: ChatMessageWithId[] = [];
+      let toInject: ChatMessageWithId[] = [
+        ...awaitingFunctionCalls.values(),
+      ].map((functionCall) => {
+        emptyResponse.push({
+          id: functionCall.responseId,
+          role: "user",
+          content: {
+            type: "functionCallResponse",
+            content: {
+              name: functionCall.functionCall.name,
+              id: functionCall.functionCall.id,
+              response: {},
+            },
+          },
+          done: true,
+        });
+        return {
+          id: functionCall.id,
+          role: "assistant",
+          content: {
+            type: "functionCallRequest",
+            content: {
+              ...functionCall.functionCall,
+              args: { ...functionCall.functionCall.args },
+            },
+          },
+          done: true,
+        };
+      });
+      chatHistory.splice(
+        finalIndexOfAssistantTextMessage,
+        0,
+        ...[...toInject, ...emptyResponse],
+      );
+    }
+  };
+
+  const searchFunctionCallResponse = (responseId: string | undefined) => {
+    if (!responseId) {
+      return;
+    }
+
+    const responseMsg = chatHistory.find((msg) => msg.id === responseId);
+    if (!responseMsg || responseMsg.content.type !== "functionCallResponse") {
+      return;
+    }
+
+    return responseMsg.content.content.response;
+  };
+
+  const isAllAwaitingFunctionCallsExecuted = (): boolean => {
+    return !awaitingFunctionCalls
+      .values()
+      .some(
+        (awaitingFunctionCall) => awaitingFunctionCall.status === "awaiting",
+      );
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -170,10 +258,11 @@
       }
     }, 100);
 
-    let unlisten: UnlistenFn | undefined = undefined;
+    let unlistenToStreamChat: UnlistenFn | undefined = undefined;
+    let unlistenToMCPResponse: UnlistenFn | undefined = undefined;
 
     async function listenToStreamChat() {
-      unlisten = await listen<EmittedChatMessage>(
+      unlistenToStreamChat = await listen<EmittedChatMessage>(
         "stream_chat",
         async (event) => {
           console.log(event.payload.message);
@@ -191,7 +280,38 @@
           }
 
           if (!event.payload.done) {
-            chatHistory[idx].content += event.payload.message.content;
+            event.payload.message.forEach((msg) => {
+              if (msg.content.type === "functionCallRequest") {
+                const id = uuidv4();
+
+                const [functionName, serverName] = msg.content.content.name
+                  .split("-_-")
+                  .reverse();
+
+                awaitingFunctionCalls.set(id, {
+                  id,
+                  functionCall: msg.content.content,
+                  status: "awaiting",
+                  responseId: uuidv4(),
+                  serverName: serverName || "",
+                  functionName: functionName || "",
+                });
+              }
+            });
+
+            let textOutput = event.payload.message
+              .filter((msg) => msg.content.type === "text")
+              .map((msg) => {
+                return (msg.content.content as Text).text;
+              });
+
+            if (chatHistory[idx].content.type !== "text") {
+              console.log("Error: Last chat message is not text content");
+              return;
+            }
+
+            (chatHistory[idx].content.content as Text).text +=
+              textOutput.join("");
 
             if (isNearBottom) {
               scrollToBottom();
@@ -200,13 +320,61 @@
           } else {
             streaming = false;
             chatHistory[idx].done = true;
+
+            if (awaitingFunctionCalls.size > 0) {
+              injectFunctionCalls();
+            }
+
             chatHistoryStore.sync(chatHistory);
           }
         },
       );
     }
 
+    async function listenToMCPResponse() {
+      unlistenToMCPResponse = await listen<EmittedMCPResponse>(
+        "mcp_response",
+        async (event) => {
+          // Update response in chat history
+          const response_msg = chatHistory.find(
+            (msg) => msg.id === event.payload.responseId,
+          );
+          if (
+            response_msg &&
+            response_msg.content.type === "functionCallResponse"
+          ) {
+            const response = event.payload.response;
+            if ("result" in response) {
+              response_msg.content.content.response =
+                response.result.structuredContent;
+            } else if ("error" in response) {
+              response_msg.content.content.response = { error: response.error };
+            }
+          }
+
+          // Update the status
+          const functionCall = awaitingFunctionCalls.get(
+            event.payload.requestId,
+          );
+          if (functionCall) {
+            functionCall.status = "success";
+          }
+
+          // Trigger stream chat if all the awaiting function calls ran
+          if (
+            !awaitingFunctionCalls
+              .values()
+              .some((functionCall) => functionCall.status === "awaiting")
+          ) {
+            awaitingFunctionCalls.clear();
+            streamChat();
+          }
+        },
+      );
+    }
+
     listenToStreamChat();
+    listenToMCPResponse();
 
     return () => {
       if (userInputBox) {
@@ -215,8 +383,11 @@
       if (scrollingArea) {
         scrollingArea.removeEventListener("scroll", checkScrollPosition);
       }
-      if (unlisten) {
-        unlisten();
+      if (unlistenToStreamChat) {
+        unlistenToStreamChat();
+      }
+      if (unlistenToMCPResponse) {
+        unlistenToMCPResponse();
       }
     };
   });
@@ -231,13 +402,43 @@
     >
       {#if didLoadChatHistory}
         {#each chatHistory as msg, i}
-          <TipTapEditor
-            id={`message-box-${i}`}
-            content={msg}
-            index={i}
-            {handleInputBoxSelection}
-            {triggerStreamChat}
-          />
+          {#if msg.content.type === "text"}
+            {#if msg.role === "assistant" && i === chatHistory.length - 1 && msg.content.content.text.trim() === ""}
+              <div class="flex">
+                <div class="flex-1"></div>
+                <SpinnerBadge
+                  class="m-2"
+                  msg={isAllAwaitingFunctionCallsExecuted()
+                    ? "Thinking..."
+                    : "Awaiting..."}
+                />
+              </div>
+            {:else}
+              <TipTapEditor
+                id={`message-box-${i}`}
+                content={msg}
+                index={i}
+                {handleInputBoxSelection}
+                {triggerStreamChat}
+              />
+            {/if}
+          {:else if msg.content.type === "functionCallRequest"}
+            {@const functionCall = awaitingFunctionCalls.get(msg.id)}
+            <div class="flex">
+              <div class="flex-1"></div>
+              <FunctionCallCell
+                class="m-2 w-[350px] space-y-2  py-2 border border-black rounded-md px-2"
+                awaitingFunctionCall={functionCall}
+                functionCallResponse={searchFunctionCallResponse(
+                  functionCall?.responseId,
+                )}
+              />
+            </div>
+            <!-- <div> -->
+            <!--   <div>{msg.content.content.name}</div> -->
+            <!--   <div>{JSON.stringify(msg.content.content.args)}</div> -->
+            <!-- </div> -->
+          {/if}
         {/each}
       {:else}
         <div class="h-full w-full justify-center items-center flex">
@@ -251,12 +452,14 @@
     </ScrollArea>
     <div class="h-[5px] w-full"></div>
   </div>
+
+  <div>{currentInputBoxIndex}</div>
   <!-- <div class="border h-px w-full"></div> -->
   <div class="m-2 flex flex-col min-h-[120px]">
     <Textarea
       id="user-input-box"
       placeholder="Type your message here."
-      bind:value={userMessage.content}
+      bind:value={userMessage}
       onfocus={() => {
         handleInputBoxSelection(chatHistory.length);
       }}

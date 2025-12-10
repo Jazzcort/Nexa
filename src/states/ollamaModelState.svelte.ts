@@ -14,6 +14,11 @@ export const modelState = $state<ModelState>({
       provider: "gemini",
       modelId: "gemini-3-pro-preview",
     },
+
+    {
+      provider: "gemini",
+      modelId: "gemini-2.5-pro",
+    },
   ],
   index: 0,
 });

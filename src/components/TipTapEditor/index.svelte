@@ -8,7 +8,7 @@
 	import { gfm } from "turndown-plugin-gfm";
 	import Code from "@tiptap/extension-code";
 	import Highlight from "@tiptap/extension-highlight";
-	import type { ChatMessageWithId } from "$types";
+	import type { ChatMessageWithId, Text } from "$types";
 	import js from "highlight.js/lib/languages/javascript";
 	import rust from "highlight.js/lib/languages/rust";
 	import python from "highlight.js/lib/languages/python";
@@ -80,6 +80,7 @@
 	} = $props();
 
 	const handleKeyDown = (e: KeyboardEvent) => {
+		console.log(e);
 		switch (e.key) {
 			case "Enter":
 				if (e.shiftKey) {
@@ -88,10 +89,22 @@
 					const text = editor.getText({
 						blockSeparator: "\n",
 					});
-					triggerStreamChat(index, {
+
+					const modifiedContent = {
 						...content,
-						content: text,
-					});
+					};
+
+					(
+						modifiedContent.content
+							.content as Text
+					).text = text;
+
+					console.log("trigger!!");
+
+					triggerStreamChat(
+						index,
+						modifiedContent,
+					);
 				}
 
 			// Testing purpose
@@ -105,7 +118,12 @@
 	const updateEditorContent = (newContent: string) => {
 		const parsedContent =
 			content.role === "assistant"
-				? parseMarkdownToTipTap(content.content)
+				? parseMarkdownToTipTap(
+						(
+							content.content
+								.content as Text
+						).text,
+					)
 				: newContent
 						.split("\n")
 						.map((line) => `<p>${line}</p>`)
@@ -132,7 +150,7 @@
 		});
 
 		// This is important for the initial message in the user's message box
-		updateEditorContent(content.content);
+		updateEditorContent((content.content.content as Text).text);
 
 		element.addEventListener("keydown", handleKeyDown);
 		return () => {
@@ -144,11 +162,15 @@
 		let interval: number | undefined = undefined;
 		if (content.done) {
 			// Delay interval clear so we can get the last streaming message
-			updateEditorContent(content.content);
+			updateEditorContent(
+				(content.content.content as Text).text,
+			);
 			clearInterval(interval);
 		} else {
 			interval = setInterval(() => {
-				updateEditorContent(content.content);
+				updateEditorContent(
+					(content.content.content as Text).text,
+				);
 			}, 100);
 		}
 
