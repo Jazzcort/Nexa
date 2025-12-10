@@ -51,6 +51,15 @@ pub(crate) enum MCPResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EmittedMCPResponse {
+    pub(crate) request_id: String,
+    pub(crate) response_id: String,
+
+    pub(crate) response: Value,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub(crate) struct MCPNotification {
     pub(crate) jsonrpc: String,
     pub(crate) method: String,

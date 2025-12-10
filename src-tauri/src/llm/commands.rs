@@ -59,12 +59,12 @@ pub async fn stream_chat(
             let mcp_clients = state.mcp_clients.read().await;
             let mut tools: Vec<Tool> = vec![];
 
-            for (name, mcp_client) in mcp_clients.iter() {
+            for (server_name, mcp_client) in mcp_clients.iter() {
                 let tool_list = mcp_client.get_tool_list().await;
                 let function_decorations: Vec<FunctionDeclaration> = tool_list
                     .iter()
                     .map(|(name, tool)| FunctionDeclaration {
-                        name: name.clone(),
+                        name: format!("{}-_-{}", server_name.clone(), name.clone()),
                         description: tool.description.clone().unwrap_or_default(),
                         parameters: Some(serde_json::to_value(&tool.input_schema).unwrap()),
                         extra_fields: json!({}),
@@ -115,7 +115,7 @@ pub async fn stream_chat(
             let mut messages: Vec<OllamaChatMessage> = vec![];
 
             for msg in history.messages.into_iter() {
-                if let ChatMessageContent::Text(text) = msg.content {
+                if let ChatMessageContent::Text { text, _meta } = msg.content {
                     messages.push(OllamaChatMessage {
                         role: msg.role,
                         content: text,
@@ -148,7 +148,10 @@ pub async fn stream_chat(
                             message: vec![ChatMessage {
                                 role: stream_response.message.role,
                                 images: stream_response.message.images,
-                                content: ChatMessageContent::Text(stream_response.message.content),
+                                content: ChatMessageContent::Text {
+                                    text: stream_response.message.content,
+                                    _meta: None,
+                                },
                             }],
                             done: stream_response.done,
                         };

@@ -22,12 +22,13 @@ pub struct ChatHistory {
     pub messages: Vec<ChatMessageWithId>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     User,
     Assistant,
     System,
+    Function,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -41,19 +42,30 @@ pub struct ChatMessage {
 #[serde(tag = "type", content = "content")]
 #[serde(rename_all = "camelCase")]
 pub enum ChatMessageContent {
-    Text(String),
+    Text {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "_meta")]
+        _meta: Option<Value>,
+    },
     FunctionCallRequest {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         name: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         args: Option<Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "_meta")]
+        _meta: Option<Value>,
     },
     FunctionCallResponse {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         name: String,
         response: Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "_meta")]
+        _meta: Option<Value>,
     },
 }
 

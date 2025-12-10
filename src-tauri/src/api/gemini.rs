@@ -281,6 +281,8 @@ pub async fn gemini_chat(
         extra_fields: json!({}),
     };
 
+    dbg!(serde_json::to_value(&gemini_request));
+
     let response = client
         .post(format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
@@ -295,6 +297,8 @@ pub async fn gemini_chat(
     let result = response.error_for_status();
 
     if let Err(e) = result {
+        dbg!("Reqwest error!!!!!");
+        dbg!(&e);
         return Err(NexaError::Reqwest(e));
     }
 

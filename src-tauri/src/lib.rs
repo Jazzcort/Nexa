@@ -7,7 +7,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use llm::commands::{get_all_ollama_chat_models, stream_chat};
 use mcp::client::MCPClient;
-use mcp::commands::initialize_mcp_client;
+use mcp::commands::{call_tool, initialize_mcp_client};
 use tauri::Manager;
 use tauri_plugin_secure_storage;
 use tokio::sync::RwLock;
@@ -33,7 +33,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_all_ollama_chat_models,
             stream_chat,
-            initialize_mcp_client
+            initialize_mcp_client,
+            call_tool,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
