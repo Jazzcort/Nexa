@@ -1,4 +1,4 @@
-use crate::api::gemini::{FunctionDeclaration, Tool};
+use crate::api::gemini::{FunctionCallingConfig, FunctionDeclaration, Tool, ToolConfig};
 use crate::error::NexaError;
 use crate::llm::base::{
     ChatHistory, ChatMessage, ChatMessageContent, EmittedChatMessage, Provider, LLM,
@@ -78,11 +78,19 @@ pub async fn stream_chat(
                 });
             }
 
+            let tool_config = ToolConfig {
+                function_calling_config: Some(FunctionCallingConfig {
+                    mode: crate::api::gemini::FunctionCallingMode::Auto,
+                    allowed_function_names: None,
+                }),
+                extra_fields: json!({}),
+            };
+
             let gemini = Gemini {
                 model_id: model,
                 tools: tools,
                 api_key: api_key,
-                tool_config: None,
+                tool_config: Some(tool_config),
             };
 
             let stream = gemini.stream_chat(history).await;

@@ -234,18 +234,18 @@ pub enum Type {
 #[serde(rename_all = "camelCase")]
 pub struct ToolConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
-    function_calling_config: Option<FunctionCallingConfig>,
+    pub function_calling_config: Option<FunctionCallingConfig>,
 
     #[serde(flatten)]
-    extra_fields: Value,
+    pub extra_fields: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionCallingConfig {
-    mode: FunctionCallingMode,
+    pub mode: FunctionCallingMode,
     #[serde(skip_serializing_if = "Option::is_none")]
-    allowed_function_names: Option<Vec<String>>,
+    pub allowed_function_names: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -306,25 +306,38 @@ pub async fn gemini_chat(
     let stream = result.bytes_stream();
 
     let stream = stream::unfold(stream, |mut stream| async move {
-        if let Some(item) = stream.next().await {
-            return match item {
+        let mut full_msg = String::new();
+        while let Some(item) = stream.next().await {
+            // let Some(item) = stream.next().await
+            match item {
                 Ok(bytes) => {
                     let msg = from_utf8(&bytes).unwrap();
-                    let trimed_msg = msg.trim().trim_start_matches("data: ");
-                    if trimed_msg.is_empty() {
-                        return None;
-                    }
+                    let trimed_msg = if full_msg.is_empty() {
+                        msg.trim().trim_start_matches("data: ")
+                    } else {
+                        msg.trim()
+                    };
 
-                    let res = serde_json::from_str::<GeminiGenerateContentResponse>(trimed_msg);
+                    full_msg += trimed_msg;
+
+                    let res = serde_json::from_str::<GeminiGenerateContentResponse>(&full_msg);
                     match res {
-                        Ok(response) => Some((Ok(response), stream)),
+                        Ok(response) => {
+                            return Some((Ok(response), stream));
+                        }
                         Err(e) => {
                             dbg!(trimed_msg);
-                            Some((Err(NexaError::SerdeJson(e)), stream))
                         }
                     }
+                    // match res {
+                    //     Ok(response) => Some((Ok(response), stream)),
+                    //     Err(e) => {
+                    //         dbg!(trimed_msg);
+                    //         Some((Err(NexaError::SerdeJson(e)), stream))
+                    //     }
+                    // }
                 }
-                Err(e) => Some((Err(NexaError::Reqwest(e)), stream)),
+                Err(e) => return Some((Err(NexaError::Reqwest(e)), stream)),
             };
         }
         None

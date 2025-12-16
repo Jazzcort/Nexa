@@ -12,6 +12,12 @@ use crate::{
 
 #[tauri::command]
 pub async fn initialize_mcp_client(state: State<'_, AppData>) -> Result<(), NexaError> {
+    // Quick testing
+    if state.mcp_clients.read().await.len() > 0 {
+        dbg!("initialized!");
+        return Ok(());
+    }
+
     let mut client = MCPClient::new_stdio_client(
         "uvx",
         [
