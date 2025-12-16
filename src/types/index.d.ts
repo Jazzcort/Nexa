@@ -101,9 +101,14 @@ export type ChatMessageContent =
   | FunctionCallRequestContent
   | FunctionCallResponseContent;
 
-export type FunctionCallStatus = "awaiting" | "success" | "failed";
+export type FunctionCallStatus =
+  | "initialized"
+  | "awaiting"
+  | "success"
+  | "failed"
+  | "cancelled";
 
-export interface AwaitingFunctionCall {
+export interface FunctionCallInfo {
   id: string;
   functionCall: FunctionCallRequest;
   status: FunctionCallStatus;

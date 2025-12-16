@@ -64,13 +64,11 @@
 
 	let {
 		content,
-		id,
 		index,
 		handleInputBoxSelection,
 		triggerStreamChat,
 	}: {
 		content: ChatMessageWithId;
-		id: string;
 		index: number;
 		handleInputBoxSelection: (index: number) => void;
 		triggerStreamChat: (
@@ -189,7 +187,6 @@
 <div class="">
 	<div
 		class="border border-black rounded p-2 m-2 px-4"
-		{id}
 		bind:this={element}
 	></div>
 	<!-- <p>{content.content}</p> -->
