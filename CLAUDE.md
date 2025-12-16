@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Tauri + SvelteKit + TypeScript application that provides a chat interface for interacting with Ollama models. The project combines a Rust backend (Tauri) with a SvelteKit frontend, configured as a Single Page Application (SPA).
+Nexa is a desktop GUI application for local AI inference, built with Tauri + SvelteKit + TypeScript. It provides a chat interface for interacting with multiple LLM providers (Ollama, Gemini) and supports MCP (Model Context Protocol) for function calling capabilities.
 
 ## Key Technologies
 - **Frontend**: SvelteKit 2.x with TypeScript, TailwindCSS 4.x, Vite 6.x
-- **Backend**: Tauri 2.x (Rust)
-- **UI Components**: bits-ui, custom components with TailwindCSS
-- **Rich Text**: TipTap editor with code highlighting support
-- **State Management**: Svelte 5 runes (`$state`)
+- **Backend**: Tauri 2.x (Rust) with async/await via tokio
+- **UI Components**: bits-ui, TipTap rich text editor with code highlighting
+- **State Management**: Svelte 5 runes (`$state`, `$derived`)
+- **Data Persistence**: Tauri plugin-store for chat history and settings
+- **Security**: Tauri plugin-secure-storage with keyring integration
 
 ## Development Commands
 
@@ -26,48 +27,86 @@ This is a Tauri + SvelteKit + TypeScript application that provides a chat interf
 - `npm run tauri dev` - Start Tauri development mode (frontend + backend)
 - `npm run tauri build` - Build the complete Tauri application
 
-## Project Structure
+## Architecture Overview
+
+### Multi-Provider LLM System
+
+The backend implements a provider abstraction pattern for supporting multiple AI services:
+
+**Backend Structure** (`src-tauri/src/`):
+- `llm/base.rs` - Base trait for LLM providers
+- `llm/ollama.rs` - Ollama-specific implementation
+- `llm/gemini.rs` - Google Gemini implementation
+- `llm/commands.rs` - Tauri commands exposed to frontend
+- `api/gemini.rs` - HTTP client for Gemini API
+
+**Key Tauri Commands**:
+- `get_all_ollama_chat_models` - Fetches available Ollama models
+- `stream_chat` - Streams chat responses from selected provider (emits events)
+- `initialize_mcp_client` - Sets up MCP client for function calling
+- `call_tool` - Invokes MCP tools during chat
+
+### MCP (Model Context Protocol) Integration
+
+The app implements MCP for function calling capabilities:
+
+**Backend Structure** (`src-tauri/src/mcp/`):
+- `client.rs` - MCP client implementation
+- `connection.rs` - Process management for MCP servers
+- `manager.rs` - Client lifecycle management
+- `commands.rs` - Tauri commands for MCP operations
+- `structs.rs` - MCP-specific data structures
+
+**State Management**:
+- `AppData` in `lib.rs` maintains a `HashMap<String, Arc<MCPClient>>` wrapped in `RwLock`
+- MCP clients are lazily initialized and stored globally via Tauri's state management
 
 ### Frontend Architecture
-- **Routes**: Standard SvelteKit routing in `src/routes/`
-  - `/` - Landing page with navigation
-  - `/chat` - Main chat interface with streaming support
-  - `/config` - Configuration page
-- **Components**: Located in `src/components/` and `src/lib/components/ui/`
-  - UI components follow a modular pattern with TypeScript exports
-  - TipTap editor integration for rich text chat messages
-- **State Management**: `src/states/` - Svelte 5 runes for reactive state
-  - `ollamaModelState.svelte.ts` - Model selection and management
-- **Types**: `src/types/index.d.ts` - TypeScript definitions
 
-### Backend Architecture (Rust/Tauri)
-- **Entry Point**: `src-tauri/src/main.rs` calls `nexa_sveltekit_lib::run()`
-- **LLM Module**: `src-tauri/src/llm/` - Handles model interactions
-- **Tauri Commands**: Exposed via `invoke()` for frontend-backend communication
-  - `stream_chat` - Streams chat responses from Ollama models
-- **Events**: Uses Tauri's event system for real-time chat streaming
+**Type System** (`src/types/index.d.ts`):
+- Discriminated unions for message types: `TextContent | FunctionCallRequestContent | FunctionCallResponseContent`
+- Provider abstraction: `type Provider = "ollama" | "gemini"`
+- Function call lifecycle tracking: `FunctionCallStatus` with states: `initialized`, `awaiting`, `success`, `failed`, `cancelled`
+
+**State Management**:
+- `src/states/ollamaModelState.svelte.ts` - Model selection (provider + modelId)
+- `src/lib/stores/chat-history.svelte.ts` - Chat persistence using Tauri Store
+  - Stores both `chatHistory` and `functionCallInfo` as separate keys
+  - Uses `ReactiveFunctionCallInfo` wrapper to make function call status reactive
+  - Auto-saves to `chat-history.json` via Tauri plugin-store
+
+**Path Aliases**:
+- `$states` → `./src/states`
+- `$types` → `./src/types/index.d.ts`
+- `$components` → `./src/components`
+
+### Chat System Flow
+
+1. **User Input**: TipTap editor captures rich text input
+2. **Message Dispatch**: Frontend invokes `stream_chat` with provider info and message history
+3. **Backend Processing**:
+   - Routes to appropriate provider (Ollama/Gemini)
+   - Handles streaming via async Rust iterators
+   - Emits chat events with message chunks
+4. **Function Calling** (if supported):
+   - Model returns function call requests
+   - Frontend displays pending function calls
+   - User can approve/reject
+   - Backend invokes MCP tools via `call_tool`
+   - Results injected back into chat context
+5. **State Updates**: Frontend reactively updates chat history using Svelte 5 runes
+6. **Persistence**: Chat history auto-saved to Tauri Store
 
 ### Key Configuration
-- **SvelteKit**: Configured as SPA with `adapter-static` and fallback to `index.html`
-- **Path Aliases**:
-  - `$states` → `./src/states`
-  - `$types` → `./src/types/index.d.ts`
-  - `$components` → `./src/components`
-- **Vite**: Optimized for Tauri with fixed port (1420) and HMR support
+- **SvelteKit**: SPA mode with `adapter-static` and fallback to `index.html`
+- **Vite**: Fixed port (1420) for Tauri integration with HMR
+- **Tauri**: Library crate name `nexa_sveltekit_lib` with multiple crate types for cross-platform support
+- **Rust Dependencies**: Uses `tauri-plugin-http` with streaming support, `tokio-util`, `async-stream` for async operations
 
-## Chat System Architecture
+## Important Implementation Details
 
-The chat interface implements real-time streaming:
-1. User input via TipTap editor
-2. Frontend invokes `stream_chat` Tauri command
-3. Backend streams responses via Tauri events
-4. Frontend updates chat history reactively using Svelte 5 runes
-5. Messages stored with unique IDs and completion status
-
-## Development Notes
-
-- Uses Svelte 5 with runes syntax (`$state`, `$derived`)
-- TailwindCSS 4.x with custom color highlighting for code blocks
-- Tauri prevents SSR - all rendering happens client-side
-- Model selection managed through reactive state pattern
-- Event-driven architecture for real-time chat streaming
+- **No SSR**: Tauri enforces client-side rendering only
+- **Event-Driven Streaming**: All LLM responses stream via Tauri events, not HTTP
+- **Reactive Function Calls**: `FunctionCallInfo` uses `$state` for reactive status updates
+- **Validated Persistence**: On load, function call info is validated against existing chat messages to prevent orphaned data
+- **Multi-Provider Support**: Abstract provider interface allows easy addition of new LLM services
