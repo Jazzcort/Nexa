@@ -43,6 +43,23 @@
 			});
 		}
 	};
+
+	const shouldDisableButton = $derived(
+		!(awaitingFunctionCall?.status === "initialized"),
+	);
+
+	const buttonText = $derived.by(() => {
+		switch (awaitingFunctionCall?.status) {
+			case "initialized":
+				return "run";
+			case "success":
+				return "ran";
+			case "awaiting":
+				return "running";
+			default:
+				return "";
+		}
+	});
 </script>
 
 {#if awaitingFunctionCall}
@@ -79,11 +96,15 @@
 					<ChevronsUpDownIcon />
 					<span class="sr-only">Toggle</span>
 				</Collapsible.Trigger>
-				<Button onclick={triggerToolCall}>run</Button>
+				<Button
+					disabled={shouldDisableButton}
+					onclick={triggerToolCall}
+					>{buttonText}</Button
+				>
 			</div>
 		</div>
 		<Collapsible.Content class="space-y-2 py-4">
-			{#if Object.keys(functionCallResponse).length !== 0}
+			{#if functionCallResponse && Object.keys(functionCallResponse).length !== 0}
 				<p class="text-sm font-bold">RESPONSE</p>
 				<SeeMore
 					class=""
@@ -103,7 +124,8 @@
 				<div
 					class="rounded-md border px-4 py-3 font-mono text-sm"
 				>
-					<strong>{arg[0]}</strong>{`: ${arg[1]}`}
+					<strong>{arg[0]}</strong
+					>{`: ${JSON.stringify(arg[1])}`}
 				</div>
 			{/each}
 		</Collapsible.Content>

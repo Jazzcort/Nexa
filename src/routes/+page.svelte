@@ -112,7 +112,6 @@
     });
 
     chatHistoryStore.saveChatHistory();
-    // chatHistoryStore.syncChatHistory(chatHistory);
 
     await assignScrollDownElement();
 
@@ -227,10 +226,6 @@
       );
 
       await assignScrollDownElement();
-
-      // if (isNearBottom) {
-      //   scrollToBottom();
-      // }
     }
   };
 
@@ -392,8 +387,19 @@
           ) {
             const response = event.payload.response;
             if ("result" in response) {
-              response_msg.content.content.response =
-                response.result.structuredContent;
+              if ("structuredContent" in response.result) {
+                response_msg.content.content.response =
+                  response.result.structuredContent;
+              } else {
+                let text = "";
+                (response.result.content as any[]).forEach((content) => {
+                  if ("text" in content) {
+                    text += content.text;
+                  }
+                });
+
+                response_msg.content.content.response = { result: text };
+              }
             } else if ("error" in response) {
               response_msg.content.content.response = { error: response.error };
             }
@@ -409,9 +415,6 @@
           }
 
           chatHistoryStore.saveFunctionCallInfo();
-          chatHistoryStore.functionCallInfo.forEach((functionCall) => {
-            console.log(JSON.stringify(functionCall, null, 2));
-          });
 
           // Trigger stream chat if all the awaiting function calls ran
           if (isAllAwaitingFunctionCallsExecuted()) {
@@ -488,10 +491,6 @@
                   )}
                 />
               </div>
-              <!-- <div> -->
-              <!--   <div>{msg.content.content.name}</div> -->
-              <!--   <div>{JSON.stringify(msg.content.content.args)}</div> -->
-              <!-- </div> -->
             {/if}
           </div>
         {/each}
@@ -508,9 +507,10 @@
     <div class="h-[5px] w-full"></div>
   </div>
 
+  <!-- Test purpose! -->
   <div>{currentInputBoxIndex}</div>
   <div>{JSON.stringify(awaitingFunctionCalls)}</div>
-  <!-- <div class="border h-px w-full"></div> -->
+
   <div class="m-2 flex flex-col min-h-[120px]">
     <Textarea
       id="user-input-box"
@@ -526,11 +526,6 @@
         onclick={normalUserInput}
         disabled={streaming || !didLoadChatHistory}>send</Button
       >
-      <!-- Testing purpose -->
-      <!-- <p>{currentInputBoxIndex}</p> -->
-      <!-- <p>{chatHistory.length} total length</p> -->
-      <!-- <p>{currentInputBoxIndex === chatHistory.length}</p> -->
-
       <Button onclick={() => goto("/config")}>Config</Button>
 
       <DropdownMenu
