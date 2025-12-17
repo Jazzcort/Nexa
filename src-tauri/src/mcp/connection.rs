@@ -69,19 +69,26 @@ pub(crate) struct MCPStdioConnection {
     _child_process: Child,
 }
 
-pub(crate) fn mcp_stdio_connect<S, I>(
+pub(crate) fn mcp_stdio_connect<S, IS, IP>(
     command: S,
-    args: I,
+    args: IS,
+    envs: IP,
 ) -> Result<(StdioWriter, StdioReader), NexaError>
 where
     S: Into<String>,
-    I: IntoIterator<Item = S>,
+    IS: IntoIterator<Item = S>,
+    IP: IntoIterator<Item = (S, S)>,
 {
-    let mut child = Command::new(command.into())
-        .args(args.into_iter().map(|s| s.into()))
+    let mut cmd = Command::new(command.into());
+    cmd.args(args.into_iter().map(|s| s.into()))
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
+        .stdout(Stdio::piped());
+
+    for (k, v) in envs.into_iter() {
+        cmd.env(k.into(), v.into());
+    }
+
+    let mut child = cmd.spawn()?;
 
     let stdin = child
         .stdin

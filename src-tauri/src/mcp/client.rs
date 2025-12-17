@@ -160,12 +160,13 @@ pub(crate) struct MCPClient {
 }
 
 impl MCPClient {
-    pub fn new_stdio_client<S, I>(command: S, args: I) -> Result<Self, NexaError>
+    pub fn new_stdio_client<S, IS, IP>(command: S, args: IS, envs: IP) -> Result<Self, NexaError>
     where
         S: Into<String>,
-        I: IntoIterator<Item = S>,
+        IS: IntoIterator<Item = S>,
+        IP: IntoIterator<Item = (S, S)>,
     {
-        let (stdio_writer, stdio_reader) = mcp_stdio_connect(command, args)?;
+        let (stdio_writer, stdio_reader) = mcp_stdio_connect(command, args, envs)?;
 
         Ok(MCPClient {
             configuration: ClientConfiguration::default(),
@@ -375,7 +376,6 @@ impl MCPClient {
 
                                         match &response {
                                             MCPResponse::Success{jsonrpc, id, result} => {
-                                                dbg!(&id);
                                                 if let Some(response_pipe) = map.remove(id) {
                                                     let _ = response_pipe.send(response);
                                                 }
@@ -472,6 +472,7 @@ mod tests {
                 "git+https://github.com/Jazzcort/status-report-assistant-mcp",
                 "mcp-serve",
             ],
+            [],
         )
         .unwrap();
 

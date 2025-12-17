@@ -111,11 +111,11 @@ pub(crate) struct ToolAnnotations {
 #[derive(Deserialize, Serialize, Clone, PartialEq, Debug)]
 pub(crate) struct FunctionSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
-    properties: Option<Value>,
+    pub(crate) properties: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    required: Option<Vec<String>>,
+    pub(crate) required: Option<Vec<String>>,
     #[serde(rename = "type")]
-    data_type: String,
+    pub(crate) data_type: String,
 }
 
 #[derive(Deserialize, Clone, PartialEq, Debug)]

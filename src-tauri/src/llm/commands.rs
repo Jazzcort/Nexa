@@ -1,4 +1,6 @@
-use crate::api::gemini::{FunctionCallingConfig, FunctionDeclaration, Tool, ToolConfig};
+use crate::api::gemini::{
+    sanitize_tools, FunctionCallingConfig, FunctionDeclaration, Tool, ToolConfig,
+};
 use crate::error::NexaError;
 use crate::llm::base::{
     ChatHistory, ChatMessage, ChatMessageContent, EmittedChatMessage, Provider, LLM,
@@ -9,11 +11,12 @@ use crate::llm::ollama::{
     OllamaChatMessage, OllamaChatRequest, OllamaChatResponse, OllamaModelInfo, OllamaModelTag,
     OllamaTagsResponse,
 };
+use crate::mcp::structs::FunctionSchema;
 use crate::AppData;
 use futures::pin_mut;
 use futures_util::StreamExt;
 use keyring::Entry;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::str::from_utf8;
 use tauri::{AppHandle, Emitter, State};
@@ -60,9 +63,13 @@ pub async fn stream_chat(
             let mut tools: Vec<Tool> = vec![];
 
             for (server_name, mcp_client) in mcp_clients.iter() {
-                let tool_list = mcp_client.get_tool_list().await;
+                let mut tool_list = mcp_client.get_tool_list().await;
+                tool_list
+                    .iter_mut()
+                    .for_each(|(_name, tool)| *tool = sanitize_tools(tool.clone()));
+
                 let function_decorations: Vec<FunctionDeclaration> = tool_list
-                    .iter()
+                    .into_iter()
                     .map(|(name, tool)| FunctionDeclaration {
                         name: format!("{}-_-{}", server_name.clone(), name.clone()),
                         description: tool.description.clone().unwrap_or_default(),

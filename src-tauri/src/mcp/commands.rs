@@ -18,7 +18,7 @@ pub async fn initialize_mcp_client(state: State<'_, AppData>) -> Result<(), Nexa
         return Ok(());
     }
 
-    let mut client = MCPClient::new_stdio_client(
+    let client = MCPClient::new_stdio_client(
         "uvx",
         [
             "--env-file",
@@ -27,6 +27,7 @@ pub async fn initialize_mcp_client(state: State<'_, AppData>) -> Result<(), Nexa
             "git+https://github.com/Jazzcort/status-report-assistant-mcp",
             "mcp-serve",
         ],
+        [],
     )?;
 
     let _ = client.start_listening().await;

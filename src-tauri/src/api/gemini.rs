@@ -1,11 +1,44 @@
 use crate::error::NexaError;
+use crate::mcp::structs::Tool as MCPTool;
 use futures::stream::{self, StreamExt};
 use futures_util::Stream;
-use serde::{Deserialize, Serialize};
+use phf::{phf_set, Set};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{self, json, Value};
 use std::collections::HashMap;
 use std::str::from_utf8;
 use tauri_plugin_http::reqwest;
+
+static ALLOWED_FIELDS: Set<&'static str> = phf_set! {
+    "type",
+    "format",
+    "title",
+    "description",
+    "nullable",
+    "enum",
+    "maxItems",
+    "minItems",
+    "required",
+    "minProperties",
+    "maxProperties",
+    "minLength",
+    "maxLength",
+    "pattern",
+    "example",
+    "propertyOrdering",
+    "default",
+    "minimum",
+    "maximum",
+
+    // Fields contain Schema
+    "properties",
+    "anyOf",
+    "items",
+};
+
+const PROPERTIES: &str = "properties";
+const ANY_OF: &str = "anyOf";
+const ITEMS: &str = "items";
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -201,14 +234,88 @@ pub(crate) struct FunctionDeclaration {
     pub(crate) extra_fields: Value,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct Schema {
-    #[serde(rename = "type")]
-    data_type: Type,
-
-    #[serde(flatten)]
-    type_specified_fields: Value,
-}
+// #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+// #[serde(rename_all = "camelCase")]
+// pub struct Schema {
+//     #[serde(rename = "type")]
+//     data_type: Type,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     format: Option<String>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     title: Option<String>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     description: Option<String>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     nullable: Option<bool>,
+//
+//     #[serde(rename = "enum")]
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     type_enum: Option<Vec<String>>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     #[serde(default)]
+//     #[serde(deserialize_with = "deserialize_number_from_string")]
+//     max_items: Option<String>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     #[serde(default)]
+//     #[serde(deserialize_with = "deserialize_number_from_string")]
+//     min_items: Option<String>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     properties: Option<HashMap<String, Box<Schema>>>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     required: Option<Vec<String>>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     #[serde(default)]
+//     #[serde(deserialize_with = "deserialize_number_from_string")]
+//     min_properties: Option<String>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     #[serde(default)]
+//     #[serde(deserialize_with = "deserialize_number_from_string")]
+//     max_properties: Option<String>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     #[serde(default)]
+//     #[serde(deserialize_with = "deserialize_number_from_string")]
+//     min_length: Option<String>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     #[serde(default)]
+//     #[serde(deserialize_with = "deserialize_number_from_string")]
+//     max_length: Option<String>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pattern: Option<String>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     example: Option<Value>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     any_of: Option<Vec<Schema>>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     property_ordering: Option<Vec<String>>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     default: Option<Value>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     items: Option<Box<Schema>>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     minimum: Option<f64>,
+//
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     maximum: Option<f64>,
+// }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Type {
@@ -346,6 +453,84 @@ pub async fn gemini_chat(
     Ok(stream)
 }
 
+pub(crate) fn sanitize_tools(mut tool: MCPTool) -> MCPTool {
+    let properties = tool.input_schema.properties.as_mut();
+    if let Some(p) = properties {
+        *p = sanitize_properties(p.clone());
+    };
+
+    tool
+    // tool
+    //     .into_iter()
+    //     .map(|mut t| {
+    //         let properties = t.input_schema.properties.as_mut();
+    //         if let Some(p) = properties {
+    //             *p = sanitize_properties(p.clone());
+    //         };
+    //
+    //         t
+    //     })
+    //     .collect()
+}
+
+fn sanitize_properties(mut properties: Value) -> Value {
+    if let Some(obj) = properties.as_object_mut() {
+        // Sanitize fields that have Schema structure
+        for (_key, value) in obj.iter_mut() {
+            *value = sanitize_schema(value.clone());
+        }
+    }
+
+    properties
+}
+
+fn sanitize_schema(mut schema: Value) -> Value {
+    if let Some(obj) = schema.as_object_mut() {
+        // Remove fields that are not allowed
+        obj.retain(|key, _value| ALLOWED_FIELDS.contains(key.as_str()));
+
+        // Sanitize fields that have Schema structure
+        for (key, value) in obj {
+            if key == PROPERTIES {
+                *value = sanitize_properties(value.clone());
+            } else if key == ANY_OF {
+                if let Some(any_of_array) = value.as_array_mut() {
+                    any_of_array
+                        .iter_mut()
+                        .for_each(|schema| *schema = sanitize_schema(schema.clone()));
+                }
+            } else if key == ITEMS {
+                *value = sanitize_schema(value.clone());
+            }
+        }
+    }
+
+    schema
+}
+
+// fn deserialize_number_from_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+// where
+//     D: Deserializer<'de>,
+// {
+//     #[derive(Deserialize)]
+//     #[serde(untagged)] // Try parsing as different types
+//     enum StringOrInt {
+//         String(String),
+//         Int(i64),
+//     }
+//
+//     match StringOrInt::deserialize(deserializer) {
+//         Ok(parsed) => match parsed {
+//             StringOrInt::String(s) => Ok(Some(s)),
+//             StringOrInt::Int(i) => Ok(Some(i.to_string())),
+//         },
+//         Err(e) => {
+//             dbg!(&e);
+//             return Err(e);
+//         }
+//     }
+// }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,6 +581,17 @@ mod tests {
             }
         });
 
+        let get_weather_properties = json!({
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "The location for the current weather report."
+                }
+            },
+            "required": ["location"]
+        });
+
         let tools = vec![Tool {
             function_declarations: Some(vec![
                 FunctionDeclaration {
@@ -403,22 +599,13 @@ mod tests {
                     description:
                         "Schedules a meeting with specified attendees at a given time and date."
                             .to_string(),
-                    parameters: Some(schedule_meeting_properties),
+                    parameters: Some(serde_json::from_value(schedule_meeting_properties).unwrap()),
                     extra_fields: json!({}),
                 },
                 FunctionDeclaration {
                     name: "get_weather".to_string(),
                     description: "Get a current weather report for a given location.".to_string(),
-                    parameters: Some(json!({
-                        "type": "object",
-                        "properties": {
-                            "location": {
-                                "type": "string",
-                                "description": "The location for the current weather report."
-                            }
-                        },
-                        "required": ["location"]
-                    })),
+                    parameters: Some(serde_json::from_value(get_weather_properties).unwrap()),
                     extra_fields: json!({}),
                 },
             ]),

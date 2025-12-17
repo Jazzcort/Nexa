@@ -34,6 +34,7 @@ tauri-plugin-store = "2"
 futures = "0.3.31"
 thiserror = "2.0.17"
 async-trait = "0.1.89"
+phf = { version = "0.13.1", features = ["macros"] }
 
 [dev-dependencies]
 dotenv = "0.15"
