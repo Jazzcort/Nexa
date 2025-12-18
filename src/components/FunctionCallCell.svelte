@@ -9,7 +9,7 @@
 	import { Spinner } from "$lib/components/ui/spinner/index.js";
 	import Dot from "@lucide/svelte/icons/dot";
 	import Check from "@lucide/svelte/icons/check";
-	import Cross from "@lucide/svelte/icons/cross";
+	import Cross from "@lucide/svelte/icons/x";
 	import { ScrollArea } from "$lib/components/ui/scroll-area/index";
 	import SeeMore from "./SeeMore.svelte";
 
@@ -56,6 +56,8 @@
 				return "ran";
 			case "awaiting":
 				return "running";
+			case "cancelled":
+				return "rejected";
 			default:
 				return "";
 		}
@@ -78,6 +80,8 @@
 					<Check class="mr-2 size-2" />
 				{:else if awaitingFunctionCall.status === "failed"}
 					<Cross class="mr-2 size-2" />
+				{:else if awaitingFunctionCall.status === "cancelled"}
+					<Cross class="mr-2 size-2" />
 				{:else}
 					<Dot class="mr-2 size-2" />
 				{/if}
@@ -97,6 +101,7 @@
 					<span class="sr-only">Toggle</span>
 				</Collapsible.Trigger>
 				<Button
+					class="w-[80px]"
 					disabled={shouldDisableButton}
 					onclick={triggerToolCall}
 					>{buttonText}</Button
@@ -107,25 +112,19 @@
 			{#if functionCallResponse && Object.keys(functionCallResponse).length !== 0}
 				<p class="text-sm font-bold">RESPONSE</p>
 				<SeeMore
-					class=""
 					text={JSON.stringify(
 						functionCallResponse,
 					)}
 					limit={250}
 				/>
-				<!-- <ScrollArea -->
-				<!-- 	class="w-full h-[250px] overflow-hidden" -->
-				<!-- 	>{JSON.stringify( -->
-				<!-- 		functionCallResponse, -->
-				<!-- 	)}</ScrollArea -->
-				<!-- > -->
 			{/if}
 			{#each Object.entries(awaitingFunctionCall.functionCall.args) as arg}
-				<div
-					class="rounded-md border px-4 py-3 font-mono text-sm"
-				>
-					<strong>{arg[0]}</strong
-					>{`: ${JSON.stringify(arg[1])}`}
+				<div class="rounded-md border px-4 py-3">
+					<SeeMore
+						header={`${arg[0]}: `}
+						text={`${JSON.stringify(arg[1])}`}
+						limit={250}
+					/>
 				</div>
 			{/each}
 		</Collapsible.Content>

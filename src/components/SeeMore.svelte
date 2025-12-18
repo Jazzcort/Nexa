@@ -3,10 +3,12 @@
 	import { cn } from "$lib/utils"; // Shadcn utility for merging classes
 
 	let {
+		header,
 		text = "",
 		limit = 150,
 		class: className,
 	}: {
+		header?: string;
 		text: string;
 		limit: number;
 		class?: string;
@@ -22,8 +24,13 @@
 	);
 </script>
 
-<div class={cn("text-sm text-muted-foreground", className)}>
-	<p class="inline break-all">
+<div class={cn("text-sm", className)}>
+	{#if header}
+		<p class="inline font-mono text-foreground font-bold">
+			{header}
+		</p>
+	{/if}
+	<p class="inline break-all text-muted-foreground">
 		{displayText}
 	</p>
 

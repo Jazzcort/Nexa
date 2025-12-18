@@ -124,6 +124,24 @@
     }, 80);
   };
 
+  const removeLastEmptyAssistantMessage = () => {
+    const lastMessage = chatHistoryStore.chatHistory.pop();
+
+    if (!lastMessage) {
+      return;
+    }
+
+    if (
+      !(
+        lastMessage.role === "assistant" &&
+        lastMessage.content.type === "text" &&
+        lastMessage.content.content.text.trim() === ""
+      )
+    ) {
+      chatHistoryStore.chatHistory.push(lastMessage);
+    }
+  };
+
   const normalUserInput = () => {
     if (
       chatHistoryStore.chatHistory.length !== currentInputBoxIndex ||
@@ -131,6 +149,8 @@
     ) {
       return;
     }
+
+    removeLastEmptyAssistantMessage();
 
     chatHistoryStore.chatHistory.push({
       role: "user",
@@ -484,7 +504,7 @@
               <div class="flex">
                 <div class="flex-1"></div>
                 <FunctionCallCell
-                  class="m-2 w-[350px] space-y-2  py-2 border border-black rounded-md px-2"
+                  class="m-2 w-[450px] space-y-2  py-2 border border-black rounded-md px-2"
                   awaitingFunctionCall={functionCall}
                   functionCallResponse={searchFunctionCallResponse(
                     functionCall?.responseId,
