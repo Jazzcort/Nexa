@@ -5,13 +5,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio;
+use tauri::AppHandle;
+use tauri_plugin_shell::{
+    process::{CommandChild, CommandEvent},
+    ShellExt,
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc::{self, Receiver};
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, Duration, Instant};
+use tokio::{self, select};
 
 #[async_trait]
 pub trait MCPTransportWriter: Send + Sync {
@@ -42,6 +47,21 @@ impl MCPTransportWriter for StdioWriter {
     }
 }
 
+pub(crate) struct StdioWriter2 {
+    stdin: Mutex<CommandChild>,
+}
+
+#[async_trait]
+impl MCPTransportWriter for StdioWriter2 {
+    async fn send(&self, data: Value) -> Result<(), NexaError> {
+        let mut stdin_handle = self.stdin.lock().await;
+
+        let mut bytes = serde_json::to_vec(&data)?;
+        bytes.push(b'\n');
+        Ok(stdin_handle.write(&bytes)?)
+    }
+}
+
 pub(crate) struct StdioReader {
     stdout: BufReader<ChildStdout>,
 }
@@ -53,6 +73,39 @@ impl MCPTransportReader for StdioReader {
         self.stdout.read_line(&mut line).await?;
 
         Ok(serde_json::from_str(line.trim())?)
+    }
+}
+
+pub(crate) struct StdioReader2 {
+    stdout: Receiver<CommandEvent>,
+}
+
+#[async_trait]
+impl MCPTransportReader for StdioReader2 {
+    async fn receive(&mut self) -> Result<MCPDataPacket, NexaError> {
+        let event = self
+            .stdout
+            .recv()
+            .await
+            .ok_or(NexaError::MCPConnection(String::from(
+                "Lost stdout connection",
+            )))?;
+
+        match event {
+            CommandEvent::Stdout(bytes) => Ok(serde_json::from_slice(bytes.trim_ascii())?),
+            CommandEvent::Stderr(bytes) => {
+                dbg!(String::from_utf8_lossy(&bytes));
+                Err(NexaError::MCPConnection(
+                    String::from_utf8_lossy(&bytes).to_string(),
+                ))
+            }
+            a => {
+                dbg!(a);
+                Err(NexaError::MCPConnection(String::from(
+                    "Read error over stdin",
+                )))
+            }
+        }
     }
 }
 
@@ -112,6 +165,75 @@ where
         },
         StdioReader { stdout: reader },
     ))
+}
+
+pub(crate) async fn mcp_stdio_connect2<S, IS, IP>(
+    app: AppHandle,
+    command: S,
+    args: IS,
+    envs: IP,
+) -> Result<(StdioWriter2, StdioReader2), NexaError>
+where
+    S: Into<String>,
+    IS: IntoIterator<Item = S>,
+    IP: IntoIterator<Item = (S, S)>,
+{
+    let shell = app.shell().sidecar(command.into())?;
+    let (mut rx, child) = shell
+        .args(args.into_iter().map(|arg| arg.into()))
+        .envs(envs.into_iter().map(|(k, v)| (k.into(), v.into())))
+        .spawn()?;
+
+    // Cleaning pipe
+    rx = clean_pipe(rx).await;
+    // let mut counts = 30;
+    // while counts > 0 {
+    //     std::thread::sleep(std::time::Duration::from_secs(1));
+    //     counts -= 1;
+    //     let packet = rx.try_recv();
+    //
+    //     if let Ok(event) = packet {
+    //         match event {
+    //             CommandEvent::Stderr(bytes) => {
+    //                 dbg!(String::from_utf8_lossy(&bytes));
+    //             }
+    //             _ => {
+    //                 dbg!("not stderr");
+    //             }
+    //         }
+    //     }
+    // }
+
+    Ok((
+        StdioWriter2 {
+            stdin: Mutex::new(child),
+        },
+        StdioReader2 { stdout: rx },
+    ))
+}
+
+async fn clean_pipe(mut rx: Receiver<CommandEvent>) -> Receiver<CommandEvent> {
+    loop {
+        select! {
+            _ = sleep(Duration::from_secs(3)) => {
+            break;
+        }
+            result = rx.recv() => {
+                if let Some(event) = result {
+                    match event {
+                        CommandEvent::Stderr(bytes) => {
+                            dbg!(String::from_utf8_lossy(&bytes));
+                        }
+                        _ => {
+                            dbg!("Not stderr");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    rx
 }
 
 impl MCPStdioConnection {

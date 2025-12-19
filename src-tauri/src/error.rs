@@ -9,6 +9,8 @@ pub enum NexaError {
     Reqwest(#[from] tauri_plugin_http::reqwest::Error),
     #[error("Serde Json Error: {0}")]
     SerdeJson(#[from] serde_json::Error),
+    #[error("Tauri Shell Error: {0}")]
+    TauriShell(#[from] tauri_plugin_shell::Error),
 
     #[error("Gemini Error: {0}")]
     Gemini(String),

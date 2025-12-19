@@ -6,21 +6,30 @@ use tokio::sync::RwLock;
 
 use crate::{
     error::NexaError,
-    mcp::{client::MCPClient, structs::EmittedMCPResponse},
+    mcp::{
+        client::{MCPClient, MCPClient2},
+        structs::EmittedMCPResponse,
+    },
     AppData,
 };
 
 #[tauri::command]
-pub async fn initialize_mcp_client(state: State<'_, AppData>) -> Result<(), NexaError> {
+pub async fn initialize_mcp_client(
+    app: AppHandle,
+    state: State<'_, AppData>,
+) -> Result<(), NexaError> {
     // Quick testing
     if state.mcp_clients.read().await.len() > 0 {
         dbg!("initialized!");
         return Ok(());
     }
 
-    let client = MCPClient::new_stdio_client(
-        "uvx",
+    let client = MCPClient2::new_stdio_client(
+        app,
+        "uv",
         [
+            "tool",
+            "run",
             "--env-file",
             "/Users/chihlee/temp/.env",
             "--from",
@@ -28,10 +37,13 @@ pub async fn initialize_mcp_client(state: State<'_, AppData>) -> Result<(), Nexa
             "mcp-serve",
         ],
         [],
-    )?;
+    )
+    .await?;
 
-    let _ = client.start_listening().await;
+    let _ = client.start_listening().await?;
     let server_config = client.get_server_config().await;
+
+    dbg!(&server_config);
 
     let mut mcp_clients_map = state.mcp_clients.write().await;
 

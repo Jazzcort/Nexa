@@ -2,7 +2,8 @@ use crate::{
     error::NexaError,
     mcp::{
         connection::{
-            self, mcp_stdio_connect, MCPStdioConnection, MCPTransportReader, MCPTransportWriter,
+            self, mcp_stdio_connect, mcp_stdio_connect2, MCPStdioConnection, MCPTransportReader,
+            MCPTransportWriter,
         },
         structs::{
             Id, ListToolsResult, MCPDataPacket, MCPNotification, MCPRequest, MCPResponse, Tool,
@@ -16,6 +17,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, LazyLock},
 };
+use tauri::AppHandle;
 use tokio::{
     select,
     sync::{oneshot, RwLock},
@@ -454,6 +456,338 @@ impl Drop for MCPClient {
     }
 }
 
+pub(crate) struct MCPClient2 {
+    configuration: ClientConfiguration,
+    transport_output: Mutex<Option<Box<dyn MCPTransportReader>>>,
+    transport_input: Box<dyn MCPTransportWriter>,
+    transport_type: Transport,
+    tool_list: RwLock<HashMap<String, Tool>>,
+    tool_calls_map: Arc<Mutex<HashMap<Id, oneshot::Sender<MCPResponse>>>>,
+    request_id: Mutex<u64>,
+    status: RwLock<MCPStatus>,
+
+    server_config: RwLock<ServerConfiguration>,
+    cancel_token: CancellationToken,
+}
+
+impl MCPClient2 {
+    pub async fn new_stdio_client<S, IS, IP>(
+        app: AppHandle,
+        command: S,
+        args: IS,
+        envs: IP,
+    ) -> Result<Self, NexaError>
+    where
+        S: Into<String>,
+        IS: IntoIterator<Item = S>,
+        IP: IntoIterator<Item = (S, S)>,
+    {
+        let (stdio_writer, mut stdio_reader) = mcp_stdio_connect2(app, command, args, envs).await?;
+
+        Ok(Self {
+            configuration: ClientConfiguration::default(),
+            status: RwLock::new(MCPStatus::Connecting),
+            transport_output: Mutex::new(Some(Box::new(stdio_reader))),
+            transport_input: Box::new(stdio_writer),
+            transport_type: Transport::Stdio,
+            request_id: Mutex::new(1),
+
+            tool_list: RwLock::new(HashMap::new()),
+            tool_calls_map: Arc::new(Mutex::new(HashMap::new())),
+
+            server_config: RwLock::new(ServerConfiguration::default()),
+            // Cancel token for listening async task
+            cancel_token: CancellationToken::new(),
+        })
+    }
+
+    pub async fn get_server_config(&self) -> ServerConfiguration {
+        return self.server_config.read().await.clone();
+    }
+
+    pub async fn get_tool_list(&self) -> Vec<(String, Tool)> {
+        return self
+            .tool_list
+            .read()
+            .await
+            .iter()
+            .map(|(k, v)| return (k.clone(), v.clone()))
+            .collect();
+    }
+
+    async fn get_request_id(&self) -> u64 {
+        let mut handle = self.request_id.lock().await;
+        let id = *handle;
+        *handle += 1;
+        id
+    }
+
+    async fn initialize(&self) -> Result<(), NexaError> {
+        match &self.transport_type {
+            Transport::Stdio => {
+                let default_client_config = self.configuration.clone();
+                let default_client_config_value = serde_json::to_value(default_client_config)?;
+                let request_id = Id::NumberId(self.get_request_id().await);
+
+                let initialize_request = MCPRequest {
+                    jsonrpc: JSON_RPC.to_string(),
+                    id: request_id.clone(),
+                    method: String::from("initialize"),
+                    params: Some(default_client_config_value),
+                };
+
+                dbg!("init!!!");
+
+                // let mut count = 0;
+                // while let Err(error) = self
+                //     .transport_output
+                //     .lock()
+                //     .await
+                //     .as_mut()
+                //     .ok_or(NexaError::MCPConnection(String::from("Missing Stdout")))?
+                //     .receive()
+                //     .await
+                // {
+                //     count += 1;
+                //     dbg!(count);
+                // }
+
+                dbg!("pass!");
+
+                self.transport_input
+                    .send(serde_json::to_value(initialize_request)?)
+                    .await?;
+
+                let response = self
+                    .transport_output
+                    .lock()
+                    .await
+                    .as_mut()
+                    .ok_or(NexaError::MCPConnection(String::from("Missing Stdout")))?
+                    .receive()
+                    .await?;
+
+                if let MCPDataPacket::Response(initialize_response) = response {
+                    match initialize_response {
+                        MCPResponse::Success {
+                            jsonrpc,
+                            id,
+                            result,
+                        } => {
+                            if jsonrpc != JSON_RPC {
+                                return Err(NexaError::MCPConnection(String::from(
+                                    "Incorrect JSON RPC version",
+                                )));
+                            }
+
+                            if id != request_id {
+                                return Err(NexaError::MCPConnection(String::from(
+                                    "Incorrect response id",
+                                )));
+                            }
+
+                            // Update Server Configuration
+                            let server_config_received: ServerConfiguration =
+                                serde_json::from_value(result)?;
+                            let mut server_config_handle = self.server_config.write().await;
+                            *server_config_handle = server_config_received;
+
+                            // Update Status
+                            let mut status_handle = self.status.write().await;
+                            *status_handle = MCPStatus::Connected;
+
+                            let initialized_notification = MCPNotification {
+                                jsonrpc: JSON_RPC.to_string(),
+                                method: String::from("notifications/initialized"),
+                                params: None,
+                            };
+
+                            self.transport_input
+                                .send(serde_json::to_value(initialized_notification)?)
+                                .await?;
+
+                            return Ok(());
+                        }
+                        MCPResponse::Fail { jsonrpc, id, error } => {
+                            return Err(NexaError::MCPConnection(format!(
+                                "Initialization Failed: {}",
+                                error.message
+                            )))
+                        }
+                    }
+                }
+
+                Err(NexaError::MCPConnection(String::from(
+                    "Incorrect server response during initialization phase",
+                )))
+            }
+            Transport::Http => Err(NexaError::MCPConnection(String::from("Unimplemented"))),
+        }
+    }
+
+    async fn list_tools(&self) -> Result<(), NexaError> {
+        match &self.transport_type {
+            Transport::Stdio => {
+                let tools_list_request = MCPRequest {
+                    jsonrpc: JSON_RPC.to_string(),
+                    id: Id::NumberId(self.get_request_id().await),
+                    method: String::from("tools/list"),
+                    params: None,
+                };
+
+                let _ = self
+                    .transport_input
+                    .send(serde_json::to_value(tools_list_request)?)
+                    .await?;
+
+                let response = self
+                    .transport_output
+                    .lock()
+                    .await
+                    .as_mut()
+                    .ok_or(NexaError::MCPConnection(String::from("Missing Stdout")))?
+                    .receive()
+                    .await?;
+
+                if let MCPDataPacket::Response(tools_list_response) = response {
+                    match tools_list_response {
+                        MCPResponse::Success {
+                            jsonrpc,
+                            id,
+                            result,
+                        } => {
+                            let tools_list_result: ListToolsResult =
+                                serde_json::from_value(result)?;
+                            let mut tool_list_handle = self.tool_list.write().await;
+                            for tool in tools_list_result.tools.iter() {
+                                tool_list_handle.insert(tool.name.clone(), tool.clone());
+                            }
+                            return Ok(());
+                        }
+                        MCPResponse::Fail { jsonrpc, id, error } => {
+                            return Err(NexaError::MCPConnection(String::from(format!(
+                                "Tools List Failed: {}",
+                                error.message
+                            ))))
+                        }
+                    }
+                }
+
+                Err(NexaError::MCPConnection(String::from(
+                    "Incorrect server response during initialization phase",
+                )))
+            }
+            Transport::Http => Err(NexaError::MCPConnection(String::from("Unimplemented"))),
+        }
+    }
+
+    pub async fn start_listening(&self) -> Result<(), NexaError> {
+        self.initialize().await?;
+        self.list_tools().await?;
+
+        let mut stdout_handle = self
+            .transport_output
+            .lock()
+            .await
+            .take()
+            .ok_or(NexaError::MCPConnection(String::from("Missing Stdout")))?;
+        let cancel_token = self.cancel_token.clone();
+        let tool_calls_map = self.tool_calls_map.clone();
+
+        task::spawn(async move {
+            loop {
+                select! {
+                    res = cancel_token.cancelled() => {
+                        dbg!("Canceled!!");
+                        break;
+                    },
+                    result = stdout_handle.receive() => {
+                        match result {
+                            Ok(data_packet) => {
+                                match data_packet {
+                                    MCPDataPacket::Response(response) => {
+                                        let mut map = tool_calls_map.lock().await;
+
+                                        match &response {
+                                            MCPResponse::Success{jsonrpc, id, result} => {
+                                                if let Some(response_pipe) = map.remove(id) {
+                                                    let _ = response_pipe.send(response);
+                                                }
+                                            }
+                                            MCPResponse::Fail{jsonrpc, id, error} => {
+                                                if let Some(response_pipe) = map.remove(id) {
+                                                    let _ = response_pipe.send(response);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    MCPDataPacket::Request(request) => {}
+                                    MCPDataPacket::Notification(notification) => {}
+                                }
+                            }
+                            Err(e) => {
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    pub async fn call_tool(
+        &self,
+        name: impl Into<String>,
+        arguments: Value,
+    ) -> Result<oneshot::Receiver<MCPResponse>, NexaError> {
+        if !arguments.is_object() {
+            return Err(NexaError::MCPToolCall(String::from(
+                "Arguments should be an object",
+            )));
+        }
+
+        let id = Id::NumberId(self.get_request_id().await);
+        let (tx, tr) = oneshot::channel::<MCPResponse>();
+
+        let mut tool_calls_map_handle = self.tool_calls_map.lock().await;
+        tool_calls_map_handle.insert(id.clone(), tx);
+
+        let name: String = name.into();
+        let call_tool_request = MCPRequest {
+            jsonrpc: JSON_RPC.to_string(),
+            id: id.clone(),
+            method: String::from("tools/call"),
+            params: Some(match arguments.as_object().unwrap().is_empty() {
+                true => {
+                    json!({
+                        "name": name,
+                    })
+                }
+                false => {
+                    json!({
+                        "name": name,
+                        "arguments": arguments
+                    })
+                }
+            }),
+        };
+
+        self.transport_input
+            .send(serde_json::to_value(call_tool_request)?)
+            .await?;
+
+        Ok(tr)
+    }
+}
+
+impl Drop for MCPClient2 {
+    fn drop(&mut self) {
+        self.cancel_token.cancel();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
@@ -565,22 +899,6 @@ mod tests {
 
         dbg!(start.elapsed());
         dbg!(res);
-
-        // let a = select! {
-        //     _ = sleep(Duration::from_secs(10)) => {
-        //         dbg!("timeout!");
-        //     }
-        //     res = output_channel => {
-        //         match res {
-        //             Ok(tool_call_res) => {
-        //                 dbg!(tool_call_res);
-        //             }
-        //             Err(e) => {
-        //                 dbg!(e);
-        //             }
-        //         }
-        //     }
-        // }
 
         drop(client);
 

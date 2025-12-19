@@ -6,19 +6,20 @@ mod mcp;
 use std::{collections::HashMap, sync::Arc};
 
 use llm::commands::{get_all_ollama_chat_models, stream_chat};
-use mcp::client::MCPClient;
+use mcp::client::{MCPClient, MCPClient2};
 use mcp::commands::{call_tool, initialize_mcp_client};
 use tauri::Manager;
 use tauri_plugin_secure_storage;
 use tokio::sync::RwLock;
 
 struct AppData {
-    mcp_clients: RwLock<HashMap<String, Arc<MCPClient>>>,
+    mcp_clients: RwLock<HashMap<String, Arc<MCPClient2>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             app.manage(AppData {
                 mcp_clients: RwLock::new(HashMap::new()),
