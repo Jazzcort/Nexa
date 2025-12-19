@@ -6,10 +6,31 @@
     "main"
   ],
   "permissions": [
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "uvx",
+          "cmd": "uvx",
+          "args": true
+        },
+        {
+          "name": "uv",
+          "cmd": "uv",
+          "args": true
+        },
+        {
+          "name": "npx",
+          "cmd": "npx",
+          "args": true
+        }
+      ]
+    },
     "core:default",
     "opener:default",
     "http:default",
     "store:default",
-    "secure-storage:default"
+    "secure-storage:default",
+    "shell:default"
   ]
 }
