@@ -38,6 +38,8 @@
   const SCROLL_THRESHOLD = 100;
   let userMessage: string = $state("");
 
+  let errorMessage = $state("");
+
   let awaitingFunctionCalls: string[] = $state([]);
 
   let currentInputBoxIndex = $state(0);
@@ -447,7 +449,9 @@
 
     listenToStreamChat();
     listenToMCPResponse();
-    invoke("initialize_mcp_client");
+    invoke("initialize_mcp_client").catch((e) => {
+      errorMessage = JSON.stringify(e);
+    });
 
     return () => {
       if (userInputBox) {
@@ -530,6 +534,9 @@
   <!-- Test purpose! -->
   <div>{currentInputBoxIndex}</div>
   <div>{JSON.stringify(awaitingFunctionCalls)}</div>
+  {#if errorMessage}
+    <div>{errorMessage}</div>
+  {/if}
 
   <div class="m-2 flex flex-col min-h-[120px]">
     <Textarea
